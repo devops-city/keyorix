@@ -5,6 +5,9 @@ encrypts secret values) and the **KEK** (key-encryption key, derived from your m
 passphrase — what wraps the DEK at rest). The output shown below is illustrative
 (version numbers and fingerprints differ on your install).
 
+For the preflight, the checks afterwards, rollback and what not to do, see
+[key-rotation-runbook.md](key-rotation-runbook.md).
+
 Both commands need exclusive access to the database — stop the server first (every replica, if you run several; see below). They read the
 current master passphrase from `KEYORIX_MASTER_PASSWORD`, `KEYORIX_MASTER_PASSWORD_FILE`,
 `--passphrase-file`, `--passphrase-fd` or `--passphrase-stdin`.
