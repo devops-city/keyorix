@@ -155,18 +155,16 @@ func (c *KeyorixCore) UpdateSharePermission(ctx context.Context, req *UpdateShar
 	// preserve the current value when the request specifies neither (resolved from
 	// the locked row inside the transaction below). A new expiry must be in the
 	// future, just like at creation.
+	// The requested values stay in locals: shareRecord is the read before the lock and
+	// is never the classification's "before" (a store may hand back the same object).
 	preserveExpiry := !req.ClearExpiry && req.ExpiresAt == nil
-	switch {
-	case req.ClearExpiry:
-		shareRecord.ExpiresAt = nil
-	case req.ExpiresAt != nil:
+	var wantExpiry *time.Time
+	if req.ExpiresAt != nil && !req.ClearExpiry {
 		if !req.ExpiresAt.After(c.now()) {
 			return nil, fmt.Errorf("%s: %s", i18n.T("ErrorValidation", nil), "share expiry must be in the future")
 		}
-		shareRecord.ExpiresAt = req.ExpiresAt
+		wantExpiry = req.ExpiresAt
 	}
-
-	shareRecord.Permission = req.Permission
 	// AUDIT-TX-2 + REVIEW-2 on #3367: an update can widen a share (permission
 	// or expiry) or narrow it, so it is classified per call against the share
 	// as read INSIDE the transaction. One that only narrows it (or changes
@@ -188,20 +186,20 @@ func (c *KeyorixCore) UpdateSharePermission(ctx context.Context, req *UpdateShar
 	// group-share update).
 	var updatedShare *models.ShareRecord
 	// lockShare is the locked read both commits start from; it resolves the requested
-	// share (want) against it.
-	lockShare := func(tx storage.Storage) (cur, want *models.ShareRecord, err error) {
+	// expiry against it (a preserved expiry is the locked row's).
+	lockShare := func(tx storage.Storage) (cur *models.ShareRecord, exp *time.Time, err error) {
 		if cur, err = tx.LockShareRecordForUpdate(ctx, shareRecord.ID); err != nil {
 			return nil, nil, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
 		}
 		if cur.ExpiresAt != nil && cur.ExpiresAt.Before(c.now()) {
 			return nil, nil, fmt.Errorf("cannot update an expired share record; revoke and re-share instead")
 		}
-		want = shareRecord
 		if preserveExpiry {
-			want.ExpiresAt = cur.ExpiresAt
+			return cur, cur.ExpiresAt, nil
 		}
-		return cur, want, nil
+		return cur, wantExpiry, nil
 	}
+	wantPerm := req.Permission
 	// write sets the share to (perm, exp) and writes its row through tgt, last.
 	write := func(tx storage.Storage, tgt auditTarget, cur *models.ShareRecord, perm string, exp *time.Time) error {
 		next := *cur
@@ -231,15 +229,15 @@ func (c *KeyorixCore) UpdateSharePermission(ctx context.Context, req *UpdateShar
 	if err := c.withOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
 		// fn may run again (the owed fallback): start from a clean slate.
 		updatedShare, narrowed, rest = nil, false, false
-		cur, want, err := lockShare(tx)
+		cur, wantExp, err := lockShare(tx)
 		if err != nil {
 			return err
 		}
-		if !shareUpdateWidens(cur.Permission, cur.ExpiresAt, want.Permission, want.ExpiresAt) {
-			return write(tx, tgt, cur, want.Permission, want.ExpiresAt)
+		if !shareUpdateWidens(cur.Permission, cur.ExpiresAt, wantPerm, wantExp) {
+			return write(tx, tgt, cur, wantPerm, wantExp)
 		}
 		rest = true
-		perm, exp, ok := shareUpdateNarrowing(cur.Permission, cur.ExpiresAt, want.Permission, want.ExpiresAt)
+		perm, exp, ok := shareUpdateNarrowing(cur.Permission, cur.ExpiresAt, wantPerm, wantExp)
 		if !ok {
 			return nil // only widens: commit 2 alone, fail closed
 		}
@@ -253,11 +251,11 @@ func (c *KeyorixCore) UpdateSharePermission(ctx context.Context, req *UpdateShar
 	}
 	// Commit 2, fail closed: the requested share, on the row as locked now.
 	widen := func(tx storage.Storage, tgt auditTarget) error {
-		cur, want, err := lockShare(tx)
+		cur, wantExp, err := lockShare(tx)
 		if err != nil {
 			return err
 		}
-		return write(tx, tgt, cur, want.Permission, want.ExpiresAt)
+		return write(tx, tgt, cur, wantPerm, wantExp)
 	}
 	if narrowed {
 		// A retry of the same request finds the narrowing applied, so only this part runs.
