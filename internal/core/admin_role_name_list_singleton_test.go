@@ -112,6 +112,13 @@ var adminRoleNameLiteralAllowlist = map[string]adminNameUse{
 			"administrative — a reserved name is not an administrative one (system_viewer, " +
 			"auditor are in it).",
 	},
+	"role_scope_guard.go:projectTierRoleNames": {
+		kindRoleDefinition,
+		"The ADR-021 project TIER (#3546): which built-in roles may only be granted at a " +
+			"project scope. Decides whether a grant's SCOPE is valid, never whether a role " +
+			"confers administrative authority; project_admin is in it as a project-tier " +
+			"role alongside project_viewer, and admin-ness stays with the structural flag.",
+	},
 	"auth_bootstrap.go:bootstrapSystemLocked": {
 		kindRoleDefinition,
 		"roleIDs[\"admin\"] — the bootstrap admin's own grant, looked up by key in the map " +
