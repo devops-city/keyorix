@@ -439,6 +439,10 @@ func validateServerSection(c *Config) error {
 		return err
 	}
 
+	if err := validateAutoCertForProfile(c, airgapProfile); err != nil {
+		return err
+	}
+
 	if c.Server.HTTP.TLS.Enabled {
 		if c.Server.HTTP.TLS.AutoCert {
 			if len(c.Server.HTTP.TLS.Domains) == 0 {

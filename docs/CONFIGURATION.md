@@ -1710,7 +1710,7 @@ certificate_expiry:
 An opt-in background scheduler that signs the audit hash-chain head (ADR-029) so
 **tail-truncation and genesis re-seed are detectable on-box**, not just via an
 off-box anchor. Each run records a `(chained_events, head_id, head_hash)`
-checkpoint with an HMAC keyed by a DEK-derived key the database/DBA does not hold;
+checkpoint with an HMAC keyed by a KEK-derived key (`deriveAuditCheckpointKey`, `internal/encryption/keymanager_lifecycle.go`) the database/DBA does not hold;
 `keyorix audit verify` (and `GET /audit/verify`) then enforce the live chain
 against the latest checkpoint. Single-replica-gated (ADR-039).
 
@@ -1749,8 +1749,8 @@ knowing:
   older versions cannot read the new anchor layout and report the chain broken.
 
 **External-notary anchoring** (`audit.checkpoint_notary`, opt-in). The checkpoint
-HMAC is keyed by a DEK-derived key the running server holds — which detects
-truncation/rewrite by a *database* actor, but an attacker who also obtains the DEK
+HMAC is keyed by a KEK-derived key (`deriveAuditCheckpointKey`) the running server holds — which detects
+truncation/rewrite by a *database* actor, but an attacker who also obtains the KEK
 could forge a checkpoint. Anchoring each written checkpoint to an external **RFC
 3161 timestamp authority (TSA)** adds an independent, signed proof-of-existence over
 the checkpoint's canonical bytes that binds it to a third party's clock and signing
@@ -1779,7 +1779,7 @@ audit:
 >
 > The new checkpoint's anchor (asserted time + TSA) is shown by
 > `keyorix audit checkpoint`. Requires `audit_checkpoints` to be doing the writing
-> (which requires encryption — the checkpoint signing key is DEK-derived).
+> (which requires encryption — the checkpoint signing key is KEK-derived, `deriveAuditCheckpointKey`).
 
 **Offline anchor source** (`audit.offline_anchor_path`, ADR-108 §B4, opt-in). An
 always-on external notary (above) needs live network access, which an air-gapped

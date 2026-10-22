@@ -519,9 +519,17 @@ docker compose pull          # fetch the published images for those tags
 docker compose up -d         # recreate with the new images
 ```
 
+Only the two `ghcr.io/keyorixhq` images are pinned to an exact release. `postgres:15-alpine`
+and `caddy:2-alpine` follow their major version, so `docker compose pull` also fetches the
+newest patch release of those; to hold either at an exact version, edit its tag in
+`docker-compose.yml` (a PostgreSQL major upgrade is a dump and restore, not a tag change).
+
 Schema migrations run automatically on boot and are additive. **Back up first**
 (section 5, mind its version note). See [UPGRADING.md](UPGRADING.md) for what
-changes on upgrade (MFA grace period).
+changes on upgrade. In particular, an upgraded deployment whose config never set
+`security.require_mfa` gets a grace period before MFA is enforced: it ends at the first
+administrator MFA enrolment or 30 days after the first start on the new release, whichever
+comes first ([details](UPGRADING.md#mfa-after-an-upgrade-the-grace-period-and-its-banner)).
 
 ### Running more than one replica
 
