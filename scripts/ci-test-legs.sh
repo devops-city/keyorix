@@ -152,7 +152,6 @@ root_base() {
 # ALSO be pinned to another, and root-4 is defined as everything else.
 root_1_pkgs() {
   cat <<'EOF'
-github.com/keyorixhq/keyorix/server/grpc/services
 github.com/keyorixhq/keyorix/internal/crypto
 github.com/keyorixhq/keyorix/server/grpc
 github.com/keyorixhq/keyorix/internal/testhelper
@@ -162,6 +161,9 @@ github.com/keyorixhq/keyorix/cmd/validate-translations
 github.com/keyorixhq/keyorix/internal/startup
 github.com/keyorixhq/keyorix/internal/di
 github.com/keyorixhq/keyorix/server/webui
+github.com/keyorixhq/keyorix/internal/encryptionops
+github.com/keyorixhq/keyorix/deploy/edge
+github.com/keyorixhq/keyorix/internal/solewriter
 EOF
 }
 
@@ -187,6 +189,8 @@ github.com/keyorixhq/keyorix/internal/connect
 github.com/keyorixhq/keyorix/internal/storage/models
 github.com/keyorixhq/keyorix/internal/delivery
 github.com/keyorixhq/keyorix/internal/core/storage
+github.com/keyorixhq/keyorix/server/grpc/services
+github.com/keyorixhq/keyorix/internal/core/guards
 EOF
 }
 
@@ -323,8 +327,9 @@ http_pkg() {
 # package in one leg with no -run filter (so Example* tests run too).
 # <preload> is "-" or "<shard>:<weight>[,<shard>:<weight>...]": that shard starts the bin-pack with
 # that much weight already on it, for work the leg does besides its tests
-# (core-1 also runs scripts/check-closures.sh, ~9-10 min of CI wall: preload
-# 1:570). Several shards may be preloaded: "1:570,3:100". (A bias correction for
+# (core-1 also runs scripts/check-closures.sh, ~10.5 min of CI wall on run
+# 39745883015 -- core-1's job was 1193 s with 512 s of tests: preload
+# 1:640). Several shards may be preloaded: "1:570,3:100". (A bias correction for
 # core-3 was tried and dropped: core's shards swap places between rounds by
 # +-6 min -- 17.4/16.7/22.6, then 17.6/23.3/18.3 -- which is runner and
 # Postgres noise, not something a constant fixes.)
@@ -337,7 +342,7 @@ http_pkg() {
 # This table, ci.yml's matrix and assert_matrix_consistent move together.
 sharded_legs() {
   cat <<'EOF'
-core|core_pkgs|4|1:570
+core|core_pkgs|4|1:640
 server|server_pkg|2|-
 http|http_pkg|6|-
 handlers|handlers_pkg|2|-
