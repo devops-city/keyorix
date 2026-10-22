@@ -244,8 +244,17 @@ For Postgres instead of SQLite, `docker compose up -d postgres` starts one, and
 Stores the session token (and server URL) at the CLI's one credential-file
 location: `~/.config/keyorix/credentials.yaml` on Linux,
 `~/Library/Application Support/keyorix/credentials.yaml` on macOS (`keyorix login
---help` and `keyorix config --help` name it too). Every command below reads it from
-there; none of them take `--server` again.
+--help` and `keyorix config --help` name it too, and `keyorix status` prints the path
+it reads). Every command below reads it from there; none of them take `--server` again.
+
+The file is **per operating-system user**: its server URL, token and `ca_file` are shared
+by every Keyorix install you run as that user, and a second `keyorix login` or
+`keyorix config set ca_file` on the same account replaces the first. To keep two installs
+apart (a restore rehearsal, a test instance), give the second one its own config
+directory: on Linux set `XDG_CONFIG_HOME=<dir>` for every `keyorix` command of that
+install (the file is then `<dir>/keyorix/credentials.yaml`); macOS ignores
+`XDG_CONFIG_HOME`, so use a separate `HOME` there. `KEYORIX_SERVER` and
+`KEYORIX_TOKEN_FILE` override the stored server and token without touching the file.
 
 With no terminal (a script, CI), `login` reads `KEYORIX_PASSWORD` or the file named
 by `KEYORIX_PASSWORD_FILE` (a 0600 file; on `main`, not in the v0.96.1 release).
