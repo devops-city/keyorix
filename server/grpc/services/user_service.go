@@ -375,6 +375,10 @@ func mapUserError(err error) error {
 	if errors.Is(err, core.ErrCannotActOnSelf) {
 		return status.Error(codes.FailedPrecondition, "cannot perform this action on your own account")
 	}
+	// #3546: e.g. a project-tier role requested as the global system role.
+	if scopeMsg, ok := core.RoleScopeClientMessage(err); ok {
+		return status.Error(codes.InvalidArgument, scopeMsg)
+	}
 	msg := strings.ToLower(err.Error())
 	switch {
 	case strings.Contains(msg, "not found"):

@@ -182,6 +182,9 @@ func (h *UserHandler) createUserClassic(w http.ResponseWriter, r *http.Request, 
 	}
 	if err != nil {
 		log.Printf("Error creating user: %v", err)
+		if sendRoleScopeError(w, err) {
+			return
+		}
 		switch {
 		case errors.Is(err, core.ErrUserAlreadyExists):
 			sendError(w, "ConflictError", errUserAlreadyExists, http.StatusConflict, nil)

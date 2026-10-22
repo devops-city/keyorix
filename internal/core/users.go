@@ -331,6 +331,11 @@ func (c *KeyorixCore) CreateUserWithAssignments(ctx context.Context, req *Create
 	if err != nil {
 		return nil, fmt.Errorf("%s: unknown role %q (system)", i18n.T("ErrorValidation", nil), sysRole)
 	}
+	// #3546: the system role lands at the global scope, so a project-tier role
+	// there would apply in every project. Project roles go in assignments.
+	if err := c.requireScopeValidForRoleName(ctx, sr.Name, Scope{}); err != nil {
+		return nil, err
+	}
 	// Escalation-by-proxy guard (#480), mirroring InviteGlobal (#231): a global
 	// system role is the most powerful grant this flow can mint, so it needs the
 	// same ceiling check requireGranterHoldsRolePermissions applies everywhere

@@ -393,20 +393,23 @@ func TestProvisionSSOUser(t *testing.T) {
 		store.AssertNotCalled(t, "CreateUser", mock.Anything, mock.Anything)
 	})
 
+	// Was project_admin until #3546: default_role is granted at the global scope,
+	// where a project-tier role applies in every project; that is now refused
+	// (TestEveryRoleGrantEntryPointRefusesProjectRoleAtGlobalScope).
 	t.Run("honours a configured default_role", func(t *testing.T) {
 		c, store, _, p := ssoTestCore(t)
-		p.DefaultRole = "project_admin"
+		p.DefaultRole = "system_auditor"
 		store.On("GetUserByExternalID", mock.Anything, "sso:okta:okta|123").Return((*models.User)(nil), notFound())
 		store.On("GetUserByEmail", mock.Anything, "ada@x.io").Return((*models.User)(nil), notFound())
 		store.On("GetUserByUsername", mock.Anything, "ada").Return((*models.User)(nil), notFound())
 		store.On("CreateUser", mock.Anything, mock.Anything).Return(&models.User{ID: 7}, nil)
-		store.On("GetRoleByName", mock.Anything, "project_admin").Return(&models.Role{ID: 9}, nil)
+		store.On("GetRoleByName", mock.Anything, "system_auditor").Return(&models.Role{ID: 9}, nil)
 		store.On("AssignRole", mock.Anything, uint(7), uint(9), mock.Anything).Return(nil)
 		store.On("LogAuditEvent", mock.Anything, mock.Anything).Return(nil)
 
 		_, err := c.provisionSSOUser(context.Background(), p, "okta|123", "ada@x.io", true, "Ada")
 		require.NoError(t, err)
-		store.AssertCalled(t, "GetRoleByName", mock.Anything, "project_admin")
+		store.AssertCalled(t, "GetRoleByName", mock.Anything, "system_auditor")
 	})
 
 	// Session O atomicity fix: the user row and its default-role grant now run in
@@ -597,6 +600,8 @@ func TestSyncSSORoles(t *testing.T) {
 		// is NOT an escalation and must still be granted.
 		store.On("RoleSetBypassesPermissionChecks", mock.Anything, []uint{10}).Return(false, nil)
 		store.On("GetRolePermissions", mock.Anything, uint(10)).Return([]*models.Permission{{Name: "secrets.write"}}, nil)
+		// GetRole: the #3546 role-scope check before the grant write.
+		store.On("GetRole", mock.Anything, uint(10)).Return(&models.Role{ID: 10, Name: "secrets_writer"}, nil)
 		store.On("AssignRole", mock.Anything, uint(7), uint(10), mock.Anything).Return(nil)
 		store.On("RemoveRole", mock.Anything, uint(7), uint(20), mock.Anything).Return(nil)
 		store.On("LogAuditEvent", mock.Anything, mock.Anything).Return(nil)

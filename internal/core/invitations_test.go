@@ -164,6 +164,7 @@ func TestApproveAccessRequest_GrantsRole(t *testing.T) {
 	store.On("RoleSetHasPermission", ctx, []uint{100}, "roles.assign").Return(true, nil)
 	// Admin upgrades the grant to developer.
 	store.On("GetRoleByName", ctx, "project_developer").Return(&models.Role{ID: 5, Name: "project_developer"}, nil)
+	store.On("GetRole", mock.Anything, uint(5)).Return(&models.Role{ID: 5, Name: "test-role-5"}, nil).Maybe() // #3546 role-scope check
 	store.On("AssignRole", ctx, uint(2), uint(5), storage.Scope{ProjectID: 1}).Return(nil)
 	store.On("UpdateAccessRequest", ctx, mock.MatchedBy(func(r *models.AccessRequest) bool {
 		return r.State == AccessRequestApproved && r.GrantedRole == "project_developer" && r.ResolvedBy == 9
@@ -206,6 +207,7 @@ func TestApproveAccessRequest_FallsBackToSuggestedRole(t *testing.T) {
 	store.On("GetUserGroupRoleIDsAt", ctx, uint(9), storage.Scope{ProjectID: 1}).Return([]uint{}, nil)
 	store.On("RoleSetBypassesPermissionChecks", ctx, []uint{100}).Return(false, nil)
 	store.On("RoleSetHasPermission", ctx, []uint{100}, "roles.assign").Return(true, nil)
+	store.On("GetRole", mock.Anything, uint(6)).Return(&models.Role{ID: 6, Name: "test-role-6"}, nil).Maybe() // #3546 role-scope check
 	store.On("AssignRole", ctx, uint(2), uint(6), storage.Scope{ProjectID: 1}).Return(nil)
 	store.On("UpdateAccessRequest", ctx, mock.Anything).Return(true, nil)
 	store.On("LogAuditEvent", ctx, mock.Anything).Return(nil)
@@ -322,6 +324,7 @@ func TestApproveAccessRequest_AdminApproverMayGrantAdmin(t *testing.T) {
 	store.On("GetUserRoleIDsAt", ctx, uint(9), storage.Scope{ProjectID: 1}).Return([]uint{2}, nil)
 	store.On("GetUserGroupRoleIDsAt", ctx, uint(9), storage.Scope{ProjectID: 1}).Return([]uint{}, nil)
 	store.On("RoleSetBypassesPermissionChecks", ctx, []uint{2}).Return(true, nil)
+	store.On("GetRole", mock.Anything, uint(2)).Return(&models.Role{ID: 2, Name: "test-role-2"}, nil).Maybe() // #3546 role-scope check
 	store.On("AssignRole", ctx, uint(2), uint(2), storage.Scope{ProjectID: 1}).Return(nil)
 	store.On("UpdateAccessRequest", ctx, mock.Anything).Return(true, nil)
 	store.On("LogAuditEvent", ctx, mock.Anything).Return(nil)

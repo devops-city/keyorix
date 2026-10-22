@@ -16,9 +16,10 @@ import (
 // (ListGlobalAdminAssignmentsForUpdate: project_id = 0 AND environment_id = 0).
 // A {ProjectID: 0, EnvironmentID: X} grant resolves only at scopes in
 // environment X (UserRoleGrant.AppliesAt), never at global scope, so counting it
-// as a global holder let the last real global admin be removed. The shape is
-// reachable: POST /api/v1/user-roles passes project_id/environment_id through
-// unchecked (server/http TestAssignRoleHTTP_EnvironmentScopedGlobalProjectGrantIsCreatable).
+// as a global holder let the last real global admin be removed. The shape was
+// reachable through POST /api/v1/user-roles until #3546 refused it (server/http
+// TestAssignRoleHTTP_EnvironmentScopedGlobalProjectGrantIsRefused); grants
+// written before that may still have it, so the filter stays.
 // Runs on SQLite and, with KEYORIX_TEST_PG_DSN, on Postgres.
 func TestListProjectRoleAssignments_GlobalExcludesEnvironmentScopedGrant(t *testing.T) {
 	t.Run("sqlite", func(t *testing.T) {

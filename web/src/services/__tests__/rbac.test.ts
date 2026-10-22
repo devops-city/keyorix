@@ -39,6 +39,21 @@ describe('rbacApi.assignRoleToGroup', () => {
             expires_at: iso,
         });
     });
+
+    // #3546: a project role needs its project; the scope travels with the grant.
+    it('sends project_id and environment_id for a scoped grant', async () => {
+        await rbacApi.assignRoleToGroup(7, 3, undefined, { projectId: 2, environmentId: 5 });
+        expect(mocked.post).toHaveBeenCalledWith('/api/v1/groups/7/roles', {
+            role_id: 3,
+            project_id: 2,
+            environment_id: 5,
+        });
+    });
+
+    it('never sends an environment without its project', async () => {
+        await rbacApi.assignRoleToGroup(7, 3, undefined, { environmentId: 5 });
+        expect(mocked.post).toHaveBeenCalledWith('/api/v1/groups/7/roles', { role_id: 3 });
+    });
 });
 
 describe('rbacApi.getGroupSharedSecrets', () => {
@@ -366,6 +381,11 @@ describe('rbacApi.removeRoleFromGroup', () => {
     it('sends DELETE to the group-role endpoint', async () => {
         mocked.delete.mockResolvedValueOnce({});
         await rbacApi.removeRoleFromGroup(7, 3);
-        expect(mocked.delete).toHaveBeenCalledWith('/api/v1/groups/7/roles/3');
+        expect(mocked.delete).toHaveBeenCalledWith('/api/v1/groups/7/roles/3', { params: {} });
+    });
+
+    it('removes the grant at the given scope', async () => {
+        await rbacApi.removeRoleFromGroup(7, 3, { projectId: 2 });
+        expect(mocked.delete).toHaveBeenCalledWith('/api/v1/groups/7/roles/3', { params: { project_id: 2 } });
     });
 });

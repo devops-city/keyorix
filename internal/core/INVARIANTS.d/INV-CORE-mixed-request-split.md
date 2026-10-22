@@ -28,8 +28,9 @@
   the same request is safe: commit 1 is idempotent. The one retry that cannot complete by itself
   is MFA-on + rename by an actor without a second factor: the new requirement gates the actor
   (`ProjectMFARequired`) and the refused retry changes nothing. If BOTH the owed record and the
-  append of commit 1's row fail, the narrowing still applies and the row is the loud "NOT queued
-  for backfill" gap: a violation, never accepted as complete (Andrei 2026-10-20).
+  append of commit 1's row fail, the narrowing still applies and the row is queued after the commit
+  (`queueOwedAuditLate`); only if that record fails too is it the loud "NOT queued for backfill"
+  gap: a violation, never accepted as complete (Andrei 2026-10-20).
   Why: a mixed request used to fail closed as a whole, so an audit outage rolled its revocation
   back (REVIEW-3482 F1); owing the whole call instead could commit a widening with no row.
   Guard: `internal/core` `TestMixedRequestSplit_NarrowingNeverBlockedRemainderFailsClosed` (11 mixed requests

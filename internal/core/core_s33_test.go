@@ -169,6 +169,7 @@ func TestAssignGroupRoleWithExpiry_Success(t *testing.T) {
 	role := &models.Role{ID: 2, Name: "viewer"} // actorID 0, actorIsMachine false → trusted system pseudo-actor, ceiling skipped
 	ms.On("GetRole", mock.Anything, uint(2)).Return(role, nil)
 	// requireGroupGrantNoSoDViolation: ListSoDPolicies stub returns nil → OK
+	ms.On("GetRole", mock.Anything, uint(2)).Return(&models.Role{ID: 2, Name: "test-role-2"}, nil).Maybe() // #3546 role-scope check
 	ms.On("AssignRoleToGroupWithExpiry", mock.Anything, uint(1), uint(2), mock.AnythingOfType("storage.Scope"), mock.AnythingOfType("time.Time")).Return(nil)
 	ms.On("LogAuditEvent", mock.Anything, mock.Anything).Return(nil)
 	c := NewKeyorixCore(ms)
@@ -218,6 +219,7 @@ func TestAssignRoleToUser_Success(t *testing.T) {
 	ms.On("GetRoleByName", mock.Anything, "viewer").Return(&models.Role{ID: 3, Name: "viewer"}, nil)
 	// requireNoSoDViolation: ListSoDPolicies smart stub = nil → OK
 	// assignUserRoleSystemGrant calls AssignRole
+	ms.On("GetRole", mock.Anything, uint(3)).Return(&models.Role{ID: 3, Name: "test-role-3"}, nil).Maybe() // #3546 role-scope check
 	ms.On("AssignRole", mock.Anything, uint(5), uint(3), mock.AnythingOfType("storage.Scope")).Return(nil)
 	ms.On("LogAuditEvent", mock.Anything, mock.Anything).Return(nil)
 	c := NewKeyorixCore(ms)

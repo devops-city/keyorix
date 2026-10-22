@@ -113,12 +113,13 @@ Format: `INV-CORE-NN <rule>. Why: <source>. Guard: <test> | UNGUARDED (#issue)`.
   first from passing by simply excluding `project_admin` and reopening #2496's gap.
   The two queries used to disagree on a grant at `{ProjectID: 0, EnvironmentID: X}`: the
   core-side guards counted it as a global holder although it applies only inside
-  environment X. That shape IS creatable (POST /api/v1/user-roles passes the scope through
-  unchecked), so the over-count let the last real global admin be suspended (#2857). Guard:
+  environment X. That shape was creatable (POST /api/v1/user-roles passed the scope through
+  unchecked until #3546 refused it; rows written before that remain), so the over-count let
+  the last real global admin be suspended (#2857). Guard:
   `last_admin_environment_scoped_grant_test.go:TestSuspendUser_EnvironmentScopedAdminGrantIsNotAGlobalAdminBackup`,
   store `TestListProjectRoleAssignments_GlobalExcludesEnvironmentScopedGrant` (SQLite +
-  Postgres, asserts the two queries return the same rows), and the reachability premise
-  `server/http/user_roles_env_scoped_global_project_test.go`.
+  Postgres, asserts the two queries return the same rows), and
+  `server/http/user_roles_env_scoped_global_project_test.go` (now the #3546 rejection test).
   Every path counts **live holders, not grant rows** (#2658): a user grant counts only for
   a non-deleted, `IsActive`, non-login-blocked user (not suspended/deprovisioned); a group
   grant only for a non-deleted group with at least one such global member. Core's

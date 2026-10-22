@@ -28,6 +28,7 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -195,9 +196,78 @@ func (c *KeyorixCore) WriteAuditCheckpoint(ctx context.Context) (*models.AuditCh
 		return werr
 	})
 	if err != nil {
+		if errors.Is(err, errAuditSignedStateTruncation) {
+			// Record it as a break like the incremental path does (sticky
+			// failure, gauge, in-chain event), after the lock is released.
+			if uerr := c.updateAuditVerifyState(ctx, func(st *auditVerifyState) *auditVerifyFailure {
+				return recordAuditVerifyFailure(st, c.now(), auditFullSourceCheckpoint, nil, err.Error())
+			}); uerr != nil {
+				log.Printf("SECURITY: audit checkpoint refusal could not be recorded in the verification state: %v", uerr)
+			}
+		}
 		return nil, false, err
 	}
 	return newCP, true, nil
+}
+
+// errAuditSignedStateTruncation marks a refusal by auditVerifyStateTruncation.
+var errAuditSignedStateTruncation = errors.New("the signed audit verification state proves the chain was truncated")
+
+// refuseAuditStateTruncation is the loud refusal of a checkpoint the signed
+// verification state proves would certify a truncated chain.
+func (c *KeyorixCore) refuseAuditStateTruncation(reason string) error {
+	auditCheckpointTruncationRefused.Inc()
+	log.Printf("SECURITY: audit checkpoint refused, the chain was truncated: %s", reason)
+	return fmt.Errorf("%w: %w: %s", ErrAuditCheckpointRefused, errAuditSignedStateTruncation, reason)
+}
+
+// auditVerifyStateTruncation checks the chain about to be certified (total =
+// chained + purged) against the pin the signed verification state proves under
+// the current key (signedAuditVerifyPin): the count must reach it and its head
+// row must still exist with the certified hash. It returns (reason, true) for a
+// truncation. The caller holds WithAuditCheckpointLock, so the pin cannot move
+// past the walk that produced total.
+//
+// This is what stops a relabelled key_version from laundering a truncation
+// (RECOVERY-DESIGN-1 F1). A genuine key change (rotate-kek, migrate-provider)
+// writes nothing to the database, so the state row is signed under the old key,
+// fails here and pins nothing, and the re-baseline proceeds as before. It does
+// not help when the actor also garbles or deletes the state row: that is
+// indistinguishable from a key change until a key change is itself recorded
+// with authentication.
+func (c *KeyorixCore) auditVerifyStateTruncation(ctx context.Context, total int64) (string, bool, error) {
+	pin, err := c.signedAuditVerifyPin(ctx)
+	if err != nil || pin == nil {
+		return "", false, err
+	}
+	if total < pin.Events {
+		return fmt.Sprintf("the signed audit verification state, still authentic under the current key, certifies %d events but only %d remain — the latest checkpoint or high-water mark failing its signature is not a key change, because a key change would invalidate that state too",
+			pin.Events, total), true, nil
+	}
+	if pin.HeadID == 0 {
+		return "", false, nil
+	}
+	hash, found, err := c.storage.AuditEntryHashByID(ctx, pin.HeadID)
+	if err != nil {
+		return "", false, err
+	}
+	switch {
+	case found && hash == pin.HeadHash:
+		return "", false, nil
+	case found:
+		return fmt.Sprintf("audit event #%d hash differs from the head certified by the signed audit verification state, still authentic under the current key (certified head was rewritten)", pin.HeadID), true, nil
+	}
+	// A sanctioned retention purge may have removed the row: the authenticated
+	// anchor's first surviving row is then past it.
+	anchor, err := c.loadAuditRetentionAnchor(ctx)
+	if err != nil {
+		return "", false, fmt.Errorf("failed to load audit chain re-anchor: %w", err)
+	}
+	if anchor != nil && pin.HeadID < anchor.RowID {
+		return "", false, nil
+	}
+	return fmt.Sprintf("audit event #%d, the head certified by the signed audit verification state that is still authentic under the current key, is missing (tail-truncation) — a relabelled key_version on the checkpoint or high-water mark does not make this a key change",
+		pin.HeadID), true, nil
 }
 
 // writeAuditCheckpointLocked performs the actual chain-walk + decide + create
@@ -252,7 +322,8 @@ func (c *KeyorixCore) writeAuditCheckpointLocked(ctx context.Context) (*models.A
 		// else: signature fails AND key_version is superseded → consistent with a
 		// signing-key rotation (a KEK-provider migration, since #502 — a routine DEK
 		// rotation no longer changes this key at all); fall through and re-baseline
-		// under the new key (recovery path).
+		// under the new key (recovery path), unless the signed verification state
+		// contradicts the claim (auditVerifyStateTruncation below).
 	}
 	// Refuse to checkpoint a chain that sits below the certified high-water mark —
 	// otherwise a scheduled write would launder a truncation into a fresh, authentic
@@ -266,6 +337,15 @@ func (c *KeyorixCore) writeAuditCheckpointLocked(ctx context.Context) (*models.A
 	}
 	if raw.ChainedEvents+purged < floor {
 		return nil, fmt.Errorf("%w: the audit trail (%s) is below the certified high-water mark (%d) — a truncation must be investigated, not re-baselined", ErrAuditCheckpointRefused, describeAuditCount(raw.ChainedEvents, purged, "events"), floor)
+	}
+	// The checks above excuse a checkpoint or mark that fails its signature
+	// under a different key_version, and that field is not authenticated once
+	// the signature fails. Never re-baseline a chain the signed verification
+	// state, still authentic under the current key, proves was truncated.
+	if reason, tampered, err := c.auditVerifyStateTruncation(ctx, raw.ChainedEvents+purged); err != nil {
+		return nil, err
+	} else if tampered {
+		return nil, c.refuseAuditStateTruncation(reason)
 	}
 	newCP := &models.AuditCheckpoint{
 		// Certifies chained + purged (#3257), the unit every count check compares.
