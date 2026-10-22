@@ -12,27 +12,51 @@ reporting, timelines or support. The RFC 9116 file served from keyorix.com is
 report or incident is in
 [`docs/security/incident-response-plan.md`](docs/security/incident-response-plan.md).
 
-## Supported Versions
+## Supported Versions (pre-1.0)
 
-| Version | Supported |
-|---|---|
-| Current minor release line (latest patch) | ✅ Security fixes |
-| Previous minor release line (latest patch) | ✅ Security fixes |
-| Anything older | ❌ Upgrade to a supported line |
+Until Keyorix reaches 1.0, security fixes are provided as follows:
 
-"Minor release line" means `vX.Y`: for `v0.12.3` the current line is `v0.12` and the
-previous is `v0.11`. Fixes ship as patch releases on the line, so the fixed version is
-always the latest patch of that line.
+| Severity (CVSS v3.1) | Current minor | Previous minor |
+|---|---|---|
+| Critical (9.0-10.0) | Fixed | Backported |
+| High (7.0-8.9) | Fixed | Backported |
+| Medium (4.0-6.9) | Fixed | Upgrade required |
+| Low (0.1-3.9) | Fixed | Upgrade required |
+
+**Support window.** A minor release receives Critical and High backports until the
+later of: the release of the next-but-one minor, or 30 days after its immediate
+successor is released. Example: if v0.97.0 ships on 1 November, v0.96.x receives
+Critical and High fixes until at least 1 December, even if v0.98.0 ships sooner.
+
+**Delivery.** Backported fixes ship as patch releases (e.g. v0.96.4) with a published
+GitHub Security Advisory naming every fixed version.
+
+**Exceptions.** If a fix cannot be backported safely, for example because it depends on
+changes that do not exist on the older line, the advisory will say so explicitly and
+name the minimum version that contains the fix. We will not ship a partial or untested
+backport.
+
+**Dependencies.** Vulnerabilities in third-party dependencies or the Go toolchain follow
+the same rules, based on their severity as it applies to Keyorix.
+
+"Minor" means a release line `vX.Y`: for `v0.12.3` the current minor is `v0.12`.
 
 Keyorix is pre-1.0 and has **not yet declared a support period** under the EU Cyber
 Resilience Act. Pre-1.0 tags are development releases: they carry no declared support
-period and no Declaration of Conformity. The two-line table above is a current
-operating commitment, not a declared support period.
+period and no Declaration of Conformity. The table above is a current operating
+commitment, not a declared support period.
 
-From v1.0, LTS releases receive **five years of security updates**, delivered to
-air-gapped deployments as signed offline bundles with an SBOM and a VEX document.
-See [SUPPORT.md](SUPPORT.md) for the full policy and
-[ADR-067](docs/adr-067-release-lifecycle-support-policy.md) for the rationale.
+## After 1.0
+
+This policy covers pre-1.0 releases only. A new policy will be published with 1.0.0,
+replacing this one. We expect fewer and less frequent minor releases after 1.0, with
+each supported minor receiving security fixes for a longer period, measured in months
+rather than weeks. The exact terms will be set in the 1.0 policy. Until then, the
+pre-1.0 terms above apply.
+
+See [SUPPORT.md](SUPPORT.md) for the release classes and the LTS and air-gapped
+update plans, and [ADR-067](docs/adr-067-release-lifecycle-support-policy.md) for the
+rationale.
 
 ## Reporting a Vulnerability
 
@@ -79,7 +103,7 @@ expect through to a fix:
 | Fix, all severities | Within **90 days** of a validated report |
 | High / Critical severity | **1 week advance notice** before the security release ships |
 | Advisory | A **GitHub Security Advisory with a requested CVE**, published the **same day** as the fix |
-| Supported versions | Current and previous minor line (see Supported Versions above) |
+| Supported versions | Current minor for all severities; previous minor for Critical and High (see Supported Versions above) |
 
 The 90-day figure is a ceiling, not a target — most fixes ship well inside
 it. We publish one commitment across all severities rather than a
@@ -100,9 +124,8 @@ the competitor research behind these numbers, and the internal CRITICAL/HIGH
 definition used for prioritization. This table is the authoritative,
 current source for the published commitment above; ADR-104 also states it
 for the record, but if the two ever disagree, this page is current and
-ADR-104's copy is stale. (ADR-104 and [SUPPORT.md](SUPPORT.md) predate the
-two-line support table and still say "latest release only" for pre-1.0; this
-page governs.)
+ADR-104's copy is stale. (ADR-104's original "latest release only" scoping for
+pre-1.0 is superseded by its 2026-10-22 amendment; this page governs.)
 
 ## Advisories, CVEs and Patch Releases
 
