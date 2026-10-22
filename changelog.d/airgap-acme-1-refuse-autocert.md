@@ -1,0 +1,5 @@
+### Security
+- **Air-gapped server build refuses `server.http.tls.auto_cert` at startup.** `keyorix-server-airgap` (`-tags noaws,noazure,nogcp`) used to accept ACME / Let's Encrypt, resolve `acme-v02.api.letsencrypt.org` at the first TLS handshake and fail every handshake while start-up looked healthy. It now refuses to start with `server.http.tls.auto_cert: true is not available in this build`, whether or not `tls.enabled` is set; the message says to configure `cert_file` and `key_file` from an internal CA instead. The full build is unchanged and still accepts `auto_cert`. Guarded by `TestAirgapProfile_RefusesHTTPAutoCert` (run with the air-gap tags), `TestValidateAutoCertForProfile` and `TestValidate_HTTPAutoCertMatchesProfile`.
+
+### Documentation
+- **Air-gap runbook and start-up refusals:** a table of what the air-gapped build refuses at startup (cloud KMS key providers, `auto_cert`) in `docs/AIRGAP_RUNBOOK.md`, plus an `auto_cert` entry in `docs/operator/startup-refusals.md` and its inventory.

@@ -21,6 +21,19 @@ Nothing in the install, the first boot, MFA enrolment, a project and secret, a l
 PostgreSQL backup, the checkpoint export, a restore into a fresh database and the audit
 check below contacted the network when run with v0.96.2.
 
+**What the air-gapped build refuses at startup.** Options that can only work by reaching
+the internet are refused before the server listens, so a config that cannot work fails at
+once instead of failing later at runtime:
+
+| Option | Refusal | Configure instead |
+|---|---|---|
+| `storage.encryption.key_provider.type: aws-kms`, `gcp-kms`, `azure-kms` | `encryption key_provider type "<type>" is not available in this build` | `password`, `file`, `env`, `exec`, `shamir` or `tpm` |
+| `server.http.tls.auto_cert: true` (ACME / Let's Encrypt) | `server.http.tls.auto_cert: true is not available in this build` | static certificate files (`cert_file`, `key_file`) from your internal CA |
+
+Both are listed in [operator/startup-refusals.md](operator/startup-refusals.md). Other
+opt-in features that reach out when configured (SSO discovery, webhooks, SIEM sinks) are
+not refused: they only contact the destination you configure.
+
 **Prove it on your own host.** With a firewall rule that drops everything the server's
 account sends off the loopback interface (it leaves the rest of the machine alone), the
 rule's packet counter shows any attempt:

@@ -241,6 +241,22 @@ Configuration is invalid: TLS is enabled but cert_file or key_file is missing
 **Cause / fix.** `server.http.tls.enabled: true` needs both `cert_file` and `key_file`
 (or `auto_cert` with `domains`). **In place:** yes.
 
+### `auto_cert` in the air-gapped build
+
+Message (air-gapped server build, `-tags noaws,noazure,nogcp`, `keyorix-server-airgap`):
+
+```
+Configuration is invalid: server.http.tls.auto_cert: true is not available in this build: the air-gapped server profile never contacts the internet, and automatic (ACME / Let's Encrypt) certificates need to reach a certificate authority. Remove server.http.tls.auto_cert and domains, and set server.http.tls.cert_file and key_file (certificate files issued by your internal CA), or use the full server build if the host can reach an ACME CA
+```
+
+**Match:** `server.http.tls.auto_cert: true is not available in this build`
+
+**Cause.** ACME needs to reach a certificate authority on the internet, which the
+air-gapped build never does. It is refused whether or not `tls.enabled` is set.
+**Fix.** Remove `auto_cert` and `domains`; set `server.http.tls.cert_file` and `key_file`
+to certificate files from your internal CA. The full build still accepts `auto_cert`.
+**In place:** yes.
+
 ### Weak or misspelled cipher suite
 
 Real output:
