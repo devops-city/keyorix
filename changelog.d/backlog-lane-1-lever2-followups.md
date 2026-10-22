@@ -1,0 +1,2 @@
+### Testing
+- **Lever-2 fold follow-ups.** The folded machine-credential cross-replica test gains a classification-change case (a secret turning `restricted` under the restricted-read gate is refused on a warm folded replica exactly as on a cold one), and `credential_read_fold.go` documents that the fold also needs the secret in the replica's node cache (REVIEW-LEVER2, accepted). No behaviour change.

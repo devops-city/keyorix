@@ -15,6 +15,17 @@
 // principal's own history here, never on whether the secret exists or on other
 // principals' traffic warming the node cache. An unknown token never reaches
 // serveAuthCacheHit at all.
+//
+// The mark is necessary, not sufficient: the storage side also needs the secret's
+// node in THIS replica's node cache (getMachineCredentialFolded's
+// secretMetaCache.getNode, internal/storage/store/local_folded_credential.go),
+// and falls back to the plain re-check when it is absent. So whether a marked
+// read folds can depend on that cache state (an eviction, or another principal's
+// write having invalidated the entry). REVIEW-LEVER2 accepted this: the folded
+// and plain statements differ by sub-millisecond, the response is identical
+// either way (TestFoldedCredentialCheck_RefusesExactlyAsUnfolded), and the
+// caller is a principal that already read this secret here. No behaviour hangs
+// on it.
 package middleware
 
 import (
