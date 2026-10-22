@@ -123,6 +123,10 @@ echo "Starting Keyorix server..."
 #   - the file must not be accessible to "other", writable by its group, or carry
 #     setuid/setgid/sticky; group-read (0440/0640) is accepted only for a file the
 #     running user does not own whose group the process holds (fsGroup/group_add);
+#   - the file must be owned by the running user or root (#3393: any other owner can
+#     rewrite it, e.g. to choose the first admin's password), whatever its mode;
+#   - internal/secretenv/testdata/permission-matrix.tsv is the rule as a table,
+#     and server/entrypoint_permission_matrix_test.go holds this copy to it;
 #   - neither the value nor the file contents are ever printed.
 # The value goes into the shell variable OUT, which is unset first so it is never
 # exported, even when a variable of that name came in with the environment. NAME and
@@ -153,6 +157,11 @@ resolve_secret() {
     _rs_other=${_rs_mode#"${_rs_mode%?}"}
     _rs_rest=${_rs_mode%?}
     _rs_group=${_rs_rest#"${_rs_rest%?}"}
+    _rs_euid=$(id -u) || return 1
+    if [ "$_rs_uid" != "$_rs_euid" ] && [ "$_rs_uid" != 0 ]; then
+        echo "ERROR: ${_rs_name}_FILE=$_rs_path is owned by uid $_rs_uid, which is neither the running user (uid $_rs_euid) nor root -- refusing to trust it (that account can replace the file); chown it to root, keeping the group the process reads it through, or to uid $_rs_euid" >&2
+        return 1
+    fi
     _rs_ok=1
     [ "${#_rs_mode}" -le 3 ] || _rs_ok=0                      # setuid/setgid/sticky
     [ "$_rs_other" = 0 ] || _rs_ok=0                          # any access for other
@@ -160,14 +169,14 @@ resolve_secret() {
     if [ "$_rs_ok" = 1 ] && [ $(( _rs_group & 5 )) -ne 0 ]; then
         # group-readable: only an orchestrator-owned file in a group we hold
         _rs_ok=0
-        if [ "$_rs_uid" != "$(id -u)" ]; then
+        if [ "$_rs_uid" != "$_rs_euid" ]; then
             for _rs_g in $(id -G); do
                 [ "$_rs_g" = "$_rs_gid" ] && _rs_ok=1
             done
         fi
     fi
     if [ "$_rs_ok" != 1 ]; then
-        echo "ERROR: ${_rs_name}_FILE=$_rs_path has mode $_rs_mode -- refusing to trust it (chmod 0600/0400, or mount it owned by another user, e.g. root, with a group the process belongs to and mode 0440)" >&2
+        echo "ERROR: ${_rs_name}_FILE=$_rs_path has mode $_rs_mode -- refusing to trust it (chmod 0600/0400, or mount it owned by root with a group the process belongs to and mode 0440)" >&2
         return 1
     fi
     _rs_nl='
