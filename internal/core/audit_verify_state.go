@@ -139,12 +139,25 @@ type auditVerifyRejection struct {
 	Reason string    `json:"reason"`
 }
 
+// auditVerifyPin is the newest snapshot a checkpoint write certified under the
+// key that signs the row (chained + purged units, the certified head). Saves
+// never lower it while the row stays authentic, so it survives a relabelled or
+// deleted checkpoint and high-water mark: the write paths refuse to re-baseline
+// a chain it proves was truncated (auditVerifyStateTruncation). A key change
+// makes the row fail its signature, which drops the pin with everything else.
+type auditVerifyPin struct {
+	Events   int64  `json:"events"`
+	HeadID   uint   `json:"head_id"`
+	HeadHash string `json:"head_hash"`
+}
+
 // auditVerifyState is the whole signed row.
 type auditVerifyState struct {
 	V int `json:"v"`
 	// Gen is strictly increasing across saves; Bind is the trail at save time.
 	Gen       uint64                `json:"gen"`
 	Bind      auditVerifyBinding    `json:"bind"`
+	Pin       *auditVerifyPin       `json:"pin,omitempty"`
 	Rejected  *auditVerifyRejection `json:"rejected,omitempty"`
 	Cycle     *auditVerifyCycle     `json:"cycle,omitempty"`
 	LastFull  *auditFullResult      `json:"last_full,omitempty"`
@@ -237,20 +250,9 @@ func (c *KeyorixCore) loadAuditVerifyStateUnobserved(ctx context.Context) (st *a
 		}
 		return &auditVerifyState{V: 1}, "", nil
 	}
-	parts := strings.Split(val, auditVerifyStateSep)
-	if len(parts) != 3 || parts[0] != "avs-v1" {
-		return &auditVerifyState{V: 1}, "the persisted verification state is malformed and was ignored", nil
-	}
-	payload, derr := base64.RawURLEncoding.DecodeString(parts[1])
-	if derr != nil {
-		return &auditVerifyState{V: 1}, "the persisted verification state is malformed and was ignored", nil
-	}
-	if !hmac.Equal([]byte(c.signAuditVerifyState(payload)), []byte(parts[2])) {
-		return &auditVerifyState{V: 1}, "the persisted verification state fails its signature under the current key (tampered, or written before a KEK-provider migration) and was ignored", nil
-	}
-	var s auditVerifyState
-	if jerr := json.Unmarshal(payload, &s); jerr != nil || s.V != 1 {
-		return &auditVerifyState{V: 1}, "the persisted verification state is malformed and was ignored", nil
+	s, why := c.decodeAuditVerifyState(val)
+	if s == nil {
+		return &auditVerifyState{V: 1}, why, nil
 	}
 	untrusted := func(why string) (*auditVerifyState, string, error) {
 		return &auditVerifyState{V: 1, Gen: s.Gen, Failure: s.Failure, Job: s.Job},
@@ -264,7 +266,70 @@ func (c *KeyorixCore) loadAuditVerifyStateUnobserved(ctx context.Context) (st *a
 			s.Bind.CheckpointID, s.Bind.HighWater, cur.CheckpointID, cur.HighWater))
 	}
 	c.bumpAuditVerifyGen(s.Gen)
-	return &s, "", nil
+	return s, "", nil
+}
+
+// decodeAuditVerifyState parses and authenticates a stored state row under the
+// current key. It returns nil and the reason when the row is malformed or
+// fails its signature. It applies no replay or rollback check: callers that
+// need one (loadAuditVerifyStateUnobserved) add it.
+func (c *KeyorixCore) decodeAuditVerifyState(val string) (*auditVerifyState, string) {
+	parts := strings.Split(val, auditVerifyStateSep)
+	if len(parts) != 3 || parts[0] != "avs-v1" {
+		return nil, "the persisted verification state is malformed and was ignored"
+	}
+	payload, derr := base64.RawURLEncoding.DecodeString(parts[1])
+	if derr != nil {
+		return nil, "the persisted verification state is malformed and was ignored"
+	}
+	if !hmac.Equal([]byte(c.signAuditVerifyState(payload)), []byte(parts[2])) {
+		return nil, "the persisted verification state fails its signature under the current key (tampered, or written before a KEK-provider migration) and was ignored"
+	}
+	var s auditVerifyState
+	if jerr := json.Unmarshal(payload, &s); jerr != nil || s.V != 1 {
+		return nil, "the persisted verification state is malformed and was ignored"
+	}
+	return &s, ""
+}
+
+// signedAuditVerifyPin returns what the stored state row proves the chain
+// reached under the CURRENT key, or nil when the row is absent, malformed or
+// does not authenticate (a key change, or a row an actor garbled or deleted).
+//
+// It deliberately skips loadAuditVerifyState's replay and rollback checks: an
+// authentic row is a valid floor even when it is older than the checkpoint
+// trail. A replayed older row can only lower the floor, never raise it, while
+// the replay check would let an actor discard the newest row's pin just by
+// inserting a junk checkpoint row with a higher id.
+//
+// The pin is the row's own Pin, or, for a row saved before pins existed, its
+// last valid tail check. Its count is raised to Bind.HighWater, the high-water
+// count that authenticated under this key when the row was saved; that bound
+// pins no head.
+func (c *KeyorixCore) signedAuditVerifyPin(ctx context.Context) (*auditVerifyPin, error) {
+	if !c.AuditCheckpointsAvailable() {
+		return nil, nil
+	}
+	val, ok, err := c.storage.GetSystemMetadata(ctx, auditVerifyStateKey)
+	if err != nil || !ok {
+		return nil, err
+	}
+	s, _ := c.decodeAuditVerifyState(val)
+	if s == nil {
+		return nil, nil
+	}
+	var pin auditVerifyPin
+	switch {
+	case s.Pin != nil:
+		pin = *s.Pin
+	case s.LastCheck != nil && s.LastCheck.Valid:
+		pin = auditVerifyPin{Events: s.LastCheck.CertifiedEvents, HeadID: s.LastCheck.ThroughID, HeadHash: s.LastCheck.HeadHash}
+	}
+	pin.Events = max(pin.Events, s.Bind.HighWater)
+	if pin.Events == 0 && pin.HeadID == 0 {
+		return nil, nil
+	}
+	return &pin, nil
 }
 
 // loadAuditVerifyStateForWrite is loadAuditVerifyState for a writer holding
@@ -295,6 +360,15 @@ func (c *KeyorixCore) saveAuditVerifyState(ctx context.Context, st *auditVerifyS
 	bind, err := c.currentAuditVerifyBinding(ctx)
 	if err != nil {
 		return err
+	}
+	// Never lower the pin the stored row proves under this key, whatever st
+	// was loaded as (an untrusted load starts from an empty state).
+	prev, err := c.signedAuditVerifyPin(ctx)
+	if err != nil {
+		return err
+	}
+	if prev != nil && (st.Pin == nil || prev.Events > st.Pin.Events) {
+		st.Pin = prev
 	}
 	st.V = 1
 	st.Bind = bind

@@ -1,0 +1,1 @@
+AUDIT-CKPT-KEYVERSION-LAUNDER-INCREMENTAL	./internal/core	TestAuditCheckpointLaunder_IncrementalPathRefuses	default-ci	pending	-	same closure on the scheduler tick (incremental verification): the full-walk fallback and the tail-check write both refuse and record a sticky verification failure
