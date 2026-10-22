@@ -2128,9 +2128,51 @@ signs in — useful when an IdP isn't wired for SCIM push. The account is create
 stored as its `externalId` for future reconciliation, and is granted `default_role`
 (`system_viewer` when unset; an unknown role grants nothing — least-privilege on
 misconfiguration). The JIT creation is audited as `auth.sso_jit_provisioned`. The IdP
-must return an `email` claim (request the `email` scope), or the login is refused. A
-later SCIM push for the same `externalId` reconciles to the same account. Leave
+must return an `email` claim (request the `email` scope), or the login is refused. Leave
 `auto_provision` off to require that accounts be provisioned ahead of time.
+
+> **A JIT account is not managed by SCIM** (since #3493). Its `externalId` is in the
+> reserved `sso:<provider>:<sub>` scheme, so SCIM get, list, update, deactivate, delete
+> and group membership all refuse it, and a SCIM push for it is not reconciled to it.
+
+### Offboarding an SSO / JIT account
+
+**Disabling a user at the IdP, or deactivating them over SCIM, does not offboard a JIT or
+SSO-claimed account.** Its personal access tokens (PATs) and sessions stay valid until one
+of these happens:
+
+- a Keyorix administrator suspends, deactivates or deletes the user (below);
+- each PAT reaches its own expiry (a PAT created without one never does);
+- the session lifetime ends. With `session.absolute_ttl` unset (the default) a session
+  can be refreshed indefinitely, so it is not a dependable bound; set it if you rely on it.
+
+The inactivity sweep (`keyorix user suspend-inactive`) is **not scheduled**: nothing in the
+server runs it, and it skips global administrators. Run it by hand, or do not count on it.
+
+To offboard such a user, as an administrator holding `users.write` (`users.delete` for
+the delete):
+
+```bash
+# 1. Find the user id (the leaver's email, or the IdP subject as external_id=sso:<provider>:<sub>).
+curl -s -H "Authorization: Bearer $KEYORIX_TOKEN" \
+  "https://<host>/api/v1/users/by-email?email=leaver@example.com"
+
+# 2. Suspend: login is blocked and every session and PAT of the user is revoked at once.
+keyorix user suspend --id <user-id> --by admin@example.com
+#    API equivalent:
+curl -s -X POST -H "Authorization: Bearer $KEYORIX_TOKEN" \
+  "https://<host>/api/v1/users/<user-id>/suspend"
+
+# 3. Or remove the account (soft delete; sessions and PATs are revoked in the same step).
+keyorix user delete --id <user-id> --by admin@example.com --force
+#    API equivalent: DELETE /api/v1/users/<user-id>
+```
+
+Suspension is reversible (`keyorix user reactivate`), but the revoked PATs stay revoked.
+If the IdP later re-enables the person, nothing in Keyorix changes until you reactivate
+them. Make this step part of your leaver process, and prefer short PAT lifetimes for SSO
+users. See SCIM-7 in
+[the SCIM and SSO threat model](security/threat-models/scim-and-sso-accounts.md).
 
 > **Email trust.** An email an IdP explicitly marks unverified (`email_verified:
 > false`) is not used to match an existing account or to provision a new one — only
