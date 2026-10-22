@@ -1,0 +1,2 @@
+### Documentation
+- **Upgrade drill (`docs/operator/drill-upgrade.md`): step 5 re-run against main.** An old v0.96.x binary on a database that main has upgraded refuses to start with `database declares a minimum compatible schema epoch of 3 (database schema epoch 5), above this binary's schema epoch 2 ... Refusing to start (ADR-101)` and exits 1, and nothing in the database or key files changes. The step description named the other (no-floor) message. The "Last run" section now has the result, and what the old binary's `admin` commands do on that database.
