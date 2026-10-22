@@ -35,6 +35,15 @@ checks is [docs/releases/RELEASE-CHECKLIST.md](docs/releases/RELEASE-CHECKLIST.m
    fails until that is done.
    Also refresh `server/default.pgo` for the release (`docs/pgo.md`,
    `scripts/pgo/refresh.sh`); it is the server's profile-guided-optimisation input.
+   **Install docs must match the release (checklist item).** README and `QUICK_START.md`
+   at the release tag must match `main` for install commands, and every version they
+   pin (`V=` in `QUICK_START.md`, the image pins in `docker-compose.yml`, any
+   `releases/download/` URL or image tag in `README.md`, `INSTALL-WITH-AI.md`,
+   `docs/SELF_HOSTING.md`) must be the version being tagged. The v0.96.3 docs pointed at
+   v0.96.0 and carried a README block that cannot work (INSTALL-CLEANROOM-1, F2/F3).
+   Before tagging run `scripts/release/check-docs-version.sh vX.Y.Z` (intentional
+   exceptions: `scripts/release/docs-version-exceptions.txt`) and read the install commands
+   in README and `QUICK_START.md` once as a new user would.
 4. Tag and push:
 
    ```sh
