@@ -12,8 +12,9 @@ development releases. They do not carry a declared support period, a Declaration
 Conformity, or a CE marking, and they are not offered as products placed on the EU
 market.
 
-Pre-1.0, security fixes land on the latest release only. Upgrade to the latest
-release to receive them.
+Pre-1.0, security fixes land on the current and the previous minor release line
+(see [SECURITY.md](SECURITY.md#supported-versions)). Upgrade to a supported line to
+receive them.
 
 The policy below takes effect at v1.0.
 
