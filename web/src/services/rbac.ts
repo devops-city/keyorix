@@ -2,6 +2,20 @@ import { apiClient } from './client';
 import { ApiResponse } from '../types';
 import { Permission, Role, RoleWithPermissions, GroupRoles, GroupSharedSecret, Group } from '../types/rbac';
 
+/** Where a role grant applies: no project = global (every project). */
+export interface RoleGrantScope {
+    projectId?: number;
+    environmentId?: number;
+}
+
+/** ADR-021 project roles: only grantable with a project (exact names, as the server checks). */
+export const PROJECT_TIER_ROLE_NAMES = new Set([
+    'project_admin',
+    'project_developer',
+    'project_viewer',
+    'project_auditor',
+]);
+
 // Normalize a role object. The server always sends snake_case now (fixed via
 // rbac_wire.go's roleWire/roleWithPermissionsWire as part of the API-hygiene
 // casing campaign); this only handles the permissions array sometimes
@@ -101,16 +115,28 @@ export const rbacApi = {
         }));
     },
 
-    async assignRoleToGroup(groupId: number, roleId: number, expiresAt?: string): Promise<void> {
+    async assignRoleToGroup(
+        groupId: number,
+        roleId: number,
+        expiresAt?: string,
+        scope?: RoleGrantScope
+    ): Promise<void> {
         // expiresAt (ISO) makes the grant time-bound; omit it for a permanent grant.
+        // No scope (or project 0) is the GLOBAL scope: every project. The server
+        // refuses a project role there (#3546).
         await apiClient.post(`/api/v1/groups/${groupId}/roles`, {
             role_id: roleId,
             ...(expiresAt ? { expires_at: expiresAt } : {}),
+            ...(scope?.projectId ? { project_id: scope.projectId } : {}),
+            ...(scope?.projectId && scope.environmentId ? { environment_id: scope.environmentId } : {}),
         });
     },
 
-    async removeRoleFromGroup(groupId: number, roleId: number): Promise<void> {
-        await apiClient.delete(`/api/v1/groups/${groupId}/roles/${roleId}`);
+    async removeRoleFromGroup(groupId: number, roleId: number, scope?: RoleGrantScope): Promise<void> {
+        const params: Record<string, number> = {};
+        if (scope?.projectId) params.project_id = scope.projectId;
+        if (scope?.projectId && scope.environmentId) params.environment_id = scope.environmentId;
+        await apiClient.delete(`/api/v1/groups/${groupId}/roles/${roleId}`, { params });
     },
 
     async createGroup(body: { name: string; description: string }): Promise<Group> {

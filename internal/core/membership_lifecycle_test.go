@@ -131,6 +131,8 @@ func TestInviteMember_OpenGrantsRoleImmediately(t *testing.T) {
 		return m.State == MembershipActive && m.ActivatedAt != nil
 	})).Return(&models.ProjectMembership{ID: 51, ProjectID: 1, UserID: 2, Role: "project_developer", State: MembershipActive}, nil)
 	// Active → role granted: AddProjectMember resolves the role and assigns it.
+	// GetRole: the #3546 role-scope check before the write.
+	store.On("GetRole", ctx, uint(5)).Return(&models.Role{ID: 5, Name: "project_developer"}, nil)
 	store.On("AssignRole", ctx, uint(2), uint(5), storage.Scope{ProjectID: 1}).Return(nil)
 	store.On("LogAuditEvent", mock.Anything, mock.Anything).Return(nil)
 
@@ -253,6 +255,7 @@ func TestInviteMember_OpenActivationFailure_RevertsOrphanedActiveMembership(t *t
 	})).Return(created, nil)
 	// The composite user_roles primary key rejects the grant — the losing racer (or
 	// any caller whose role is already held via an independent path).
+	store.On("GetRole", ctx, uint(6)).Return(&models.Role{ID: 6, Name: "project_viewer"}, nil) // #3546 role-scope check
 	store.On("AssignRole", ctx, uint(2), uint(6), storage.Scope{ProjectID: 1}).
 		Return(fmt.Errorf("Role already assigned"))
 	store.On("TransitionProjectMembershipState", ctx, mock.MatchedBy(func(m *models.ProjectMembership) bool {
@@ -301,6 +304,7 @@ func TestTransitionMembership_ActivationFailure_RevertsToPriorState(t *testing.T
 	store.On("TransitionProjectMembershipState", ctx, mock.MatchedBy(func(m *models.ProjectMembership) bool {
 		return m.ID == 50 && m.State == MembershipActive
 	}), MembershipProvisioned).Return(true, nil).Once()
+	store.On("GetRole", ctx, uint(6)).Return(&models.Role{ID: 6, Name: "project_viewer"}, nil) // #3546 role-scope check
 	store.On("AssignRole", ctx, uint(2), uint(6), storage.Scope{ProjectID: 1}).
 		Return(fmt.Errorf("Role already assigned"))
 	// Revert write: must go back to `provisioned`, not `revoked`.
@@ -356,6 +360,7 @@ func TestTransitionMembership_ActivateGrantsRole(t *testing.T) {
 		return x.State == MembershipActive && x.ActivatedAt != nil
 	}), MembershipProvisioned).Return(true, nil)
 	store.On("GetRoleByName", ctx, "project_developer").Return(&models.Role{ID: 5}, nil)
+	store.On("GetRole", ctx, uint(5)).Return(&models.Role{ID: 5, Name: "project_developer"}, nil) // #3546 role-scope check
 	store.On("AssignRole", ctx, uint(2), uint(5), storage.Scope{ProjectID: 1}).Return(nil)
 	store.On("LogAuditEvent", mock.Anything, mock.Anything).Return(nil)
 

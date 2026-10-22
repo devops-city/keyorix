@@ -437,6 +437,9 @@ func TestWriteAuditCheckpointLocked_ValidChain_NoExistingCP(t *testing.T) {
 	}, nil)
 	ms.On("LatestAuditCheckpoint", mock.Anything).Return(nil, nil)
 	ms.On("GetSystemMetadata", mock.Anything, auditHighWaterKey).Return("", false, nil)
+	// A legitimate first checkpoint: no signed verification state exists yet, so
+	// there is no pin to contradict (auditVerifyStateTruncation proceeds).
+	ms.On("GetSystemMetadata", mock.Anything, auditVerifyStateKey).Return("", false, nil)
 	ms.On("CreateAuditCheckpoint", mock.Anything, mock.AnythingOfType("*models.AuditCheckpoint")).Return(nil)
 	ms.On("SetSystemMetadata", mock.Anything, auditHighWaterKey, mock.AnythingOfType("string")).Return(nil)
 	c := NewKeyorixCore(ms)
@@ -446,6 +449,7 @@ func TestWriteAuditCheckpointLocked_ValidChain_NoExistingCP(t *testing.T) {
 	assert.True(t, ok)
 	assert.NotNil(t, cp)
 	assert.Equal(t, int64(3), cp.ChainedEvents)
+	ms.AssertCalled(t, "GetSystemMetadata", mock.Anything, auditVerifyStateKey)
 }
 
 // ── UpdateUser — email unchanged (same as current) ────────────────────────────

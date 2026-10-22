@@ -45,6 +45,13 @@ vi.mock('../../../features/admin', () => ({
     useRemoveRoleFromGroup: () => ({ mutate: mocks.removeMutate, ...state.removeMutation }),
 }));
 
+vi.mock('../../../features/projects/api', () => ({
+    useProjects: () => ({ data: [{ id: 2, name: 'payments' }] }),
+    useProjectEnvironments: (projectId: number) => ({
+        data: projectId === 2 ? [{ id: 5, name: 'prod', projectId: 2 }] : undefined,
+    }),
+}));
+
 const platformGroup = {
     id: 1,
     name: 'platform-team',
@@ -382,7 +389,7 @@ describe('GroupsPage — manage roles', () => {
         const dialog = screen.getByRole('dialog');
         fireEvent.click(within(dialog).getByRole('checkbox', { name: /viewer/i }));
 
-        expect(mocks.assignMutate).toHaveBeenCalledWith({ groupId: 1, roleId: 11 });
+        expect(mocks.assignMutate).toHaveBeenCalledWith({ groupId: 1, roleId: 11, scope: {} });
     });
 
     it('assigns a time-bound grant with a resolved expiresAt when a duration preset is selected', () => {
@@ -413,7 +420,57 @@ describe('GroupsPage — manage roles', () => {
         const dialog = screen.getByRole('dialog');
         fireEvent.click(within(dialog).getByRole('checkbox', { name: /admin/i }));
 
-        expect(mocks.removeMutate).toHaveBeenCalledWith({ groupId: 1, roleId: 10 });
+        expect(mocks.removeMutate).toHaveBeenCalledWith({ groupId: 1, roleId: 10, scope: {} });
+    });
+
+    // #3546: a project role granted with no project applied in EVERY project.
+    it('refuses a project role at the global scope and sends nothing', () => {
+        const devRole = { id: 12, name: 'project_developer', description: '', created_at: '', updated_at: '' };
+        state.roles.data = [devRole];
+        render(<GroupsPage />);
+        fireEvent.click(screen.getByTitle('Manage roles'));
+
+        const dialog = screen.getByRole('dialog');
+        fireEvent.click(within(dialog).getByRole('checkbox', { name: /project_developer/i }));
+
+        expect(mocks.assignMutate).not.toHaveBeenCalled();
+        expect(within(dialog).getByRole('alert')).toHaveTextContent(
+            'project_developer is a project role: choose a project above'
+        );
+    });
+
+    it('grants a project role at the chosen project and environment', () => {
+        const devRole = { id: 12, name: 'project_developer', description: '', created_at: '', updated_at: '' };
+        state.roles.data = [devRole];
+        render(<GroupsPage />);
+        fireEvent.click(screen.getByTitle('Manage roles'));
+
+        const dialog = screen.getByRole('dialog');
+        fireEvent.change(within(dialog).getByLabelText('Project'), { target: { value: '2' } });
+        fireEvent.change(within(dialog).getByLabelText('Environment (optional)'), { target: { value: '5' } });
+        fireEvent.click(within(dialog).getByRole('checkbox', { name: /project_developer/i }));
+
+        expect(mocks.assignMutate).toHaveBeenCalledWith({
+            groupId: 1,
+            roleId: 12,
+            scope: { projectId: 2, environmentId: 5 },
+        });
+    });
+
+    it("shows the server's refusal message in the modal", () => {
+        state.roles.data = [viewerRole];
+        state.assignMutation = {
+            isPending: false,
+            error: {
+                response: { data: { message: 'role project_developer is project-scoped; specify a project_id' } },
+            },
+        } as any;
+        render(<GroupsPage />);
+        fireEvent.click(screen.getByTitle('Manage roles'));
+
+        expect(within(screen.getByRole('dialog')).getByRole('alert')).toHaveTextContent(
+            'role project_developer is project-scoped; specify a project_id'
+        );
     });
 
     it('disables role checkboxes while a role mutation is pending', () => {

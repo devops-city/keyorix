@@ -206,6 +206,7 @@ func TestApplyInvitationGrants_GlobalInvite(t *testing.T) {
 	store.On("RoleSetHasPermission", ctx, []uint{100}, "roles.assign").Return(true, nil)
 	// System role grant at scope 0.
 	store.On("GetRoleByName", ctx, "system_auditor").Return(&models.Role{ID: 3}, nil)
+	store.On("GetRole", ctx, uint(3)).Return(&models.Role{ID: 3, Name: "system_auditor"}, nil) // #3546 role-scope check
 	store.On("AssignRole", ctx, uint(20), uint(3), storage.Scope{ProjectID: 0}).Return(nil)
 	// One membership per assignment (open mode → active → role granted).
 	for _, a := range []struct {
@@ -218,6 +219,7 @@ func TestApplyInvitationGrants_GlobalInvite(t *testing.T) {
 		store.On("CreateProjectMembership", ctx, mock.MatchedBy(func(m *models.ProjectMembership) bool {
 			return m.ProjectID == a.pid && m.UserID == 20
 		})).Return(&models.ProjectMembership{ProjectID: a.pid, UserID: 20, Role: a.role, State: MembershipActive}, nil)
+		store.On("GetRole", ctx, a.roleID).Return(&models.Role{ID: a.roleID, Name: a.role}, nil) // #3546 role-scope check
 		store.On("AssignRole", ctx, uint(20), a.roleID, storage.Scope{ProjectID: a.pid}).Return(nil)
 	}
 

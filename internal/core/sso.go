@@ -704,6 +704,12 @@ func (c *KeyorixCore) provisionSSOUser(ctx context.Context, p *SSOProvider, sub,
 	if roleName == "" {
 		roleName = ssoDefaultRole
 	}
+	// #3546: the default role is granted at the global scope, so a project-tier
+	// default_role would make every JIT user a member of every project. Refuse
+	// the provision (fail closed, like an unknown default_role) before writing.
+	if err := validateRoleScope(roleName, Scope{}); err != nil {
+		return nil, fmt.Errorf("SSO provider %q default_role: %w", p.Name, err)
+	}
 	// The user row and its baseline role grant run in one transaction — identical
 	// bootstrap shape to ProvisionSCIMUser (scim.go) and #2295's first-boot fix: a
 	// role-assign failure after a best-effort create used to leave a JIT-provisioned
@@ -832,6 +838,9 @@ func ssoReconcileLoginRefusal(msg string, cause error) error {
 // removal left no record, and wrote a partial change as a plain success).
 type ssoReconcileReport struct {
 	added, removed, blocked int
+	// scopeBlocked counts mapped grants refused because the role is project-tier
+	// and the mapping grants at the global scope (#3546).
+	scopeBlocked int
 	// failures names every step that did not apply, e.g.
 	// `remove group 42 "idp-admins": <cause>`.
 	failures []string
@@ -894,7 +903,7 @@ const ssoLastAdminWayBack = "the identity provider revoked admin access from the
 func (c *KeyorixCore) finishSSOReconcile(ctx context.Context, p *SSOProvider, userID uint, kind, okEvent, counts, blockedNote string, r *ssoReconcileReport) error {
 	err := r.err()
 	if err == nil {
-		if r.added > 0 || r.removed > 0 || r.blocked > 0 {
+		if r.added > 0 || r.removed > 0 || r.blocked > 0 || r.scopeBlocked > 0 {
 			c.writeAuditEvent(ctx, okEvent, actorPtr(userID), nil,
 				fmt.Sprintf("SSO %s via %s: user %d (%s)%s", kind, p.Name, userID, counts, blockedNote))
 		}
@@ -1092,6 +1101,10 @@ func (c *KeyorixCore) reconcileSSORoles(ctx context.Context, p *SSOProvider, use
 	if rep.blocked > 0 {
 		blockedNote = fmt.Sprintf("; %d admin-tier role grant(s) refused (IdP group mapping cannot grant admin)", rep.blocked)
 	}
+	if rep.scopeBlocked > 0 {
+		blockedNote += fmt.Sprintf("; %d project-tier role grant(s) refused (group_role_map grants at the global scope; "+
+			"map project roles through a Keyorix group with a project-scoped grant instead)", rep.scopeBlocked)
+	}
 	return c.finishSSOReconcile(ctx, p, userID, "role mapping", EventSSORolesSynced,
 		fmt.Sprintf("+%d/-%d mapped role grants", rep.added, rep.removed), blockedNote, rep)
 }
@@ -1195,6 +1208,14 @@ func (c *KeyorixCore) applySSOManagedRole(ctx context.Context, userID uint, r *m
 		}
 		if escalation {
 			rep.blocked++
+			return
+		}
+		// #3546: the mapping grants at the global scope, where a project-tier role
+		// would apply in every project. Not granted (the fail-closed direction) and
+		// not an error: like the escalation block above, a mapping the grant guard
+		// refuses must not refuse the user's login.
+		if validateRoleScope(r.Name, Scope{}) != nil {
+			rep.scopeBlocked++
 			return
 		}
 		if err := c.assignUserRoleSystemGrant(ctx, userID, userID, r.ID, Scope{}); err != nil {

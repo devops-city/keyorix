@@ -199,6 +199,30 @@ The same command runs nightly from `keyorix-demo-reset.timer` (03:30 UTC by defa
 soon as it boots, so the call starts from the calm seed. Start the VM about ten minutes before
 a call; the reset takes a couple of minutes.
 
+### What the presenter sees after a seed
+
+The seed (`scripts/demo/seed.sh`, run by the seed hook after every reset) is calm by design, with
+exactly one finding to click through. Verified on two consecutive fresh seeds of the same build
+(`scripts/demo/native-up.sh`): the control matrix was identical both times.
+
+- **Compliance** (`/compliance`): 12 controls pass, 3 show "not configured" (certificate expiry,
+  data retention, supply-chain integrity; neutral grey, not red) and **one gap**:
+  *Secret-rotation hygiene*, "0 overdue, 0 due soon; 12 of 13 secrets covered". Nothing else is red.
+- **The story**: here is the finding (the gap), here is the evidence (the control's detail names the
+  uncovered secret: `payments-webhook-secret`, backend-api / Production, the only secret with no
+  rotation policy), here is the fix (`keyorix rotation create --name backend-api-prod-90d --scope
+  environment --environment-id 6 --interval-days 90`; the matrix reads 0 gaps after a reload). The
+  click-through and the re-seed to get the finding back are in `docs/demo/GOLDEN-PATH.md` section 1b.
+- **Anomalies** (Dashboard card, Audit > Anomaly Alerts, Compliance "Access-anomaly detection"):
+  0 open, 0 high severity. The seed waits for the detector's first pass and acknowledges the
+  "first observed" alerts its own setup caused (about 40; they stay in the list as acknowledged,
+  hidden by the page's default "open" filter). `scripts/demo/trigger-anomaly.sh` creates a real
+  one on demand.
+
+`make demo-check` (`scripts/demo/check.sh`, SQLite container demo) fails if a fresh seed shows any
+gap other than `secret-rotation`, an unknown or partial control, or an anomaly-detection control
+that is not "pass", so a seed change that adds red is caught before a call.
+
 ## Idle shutdown
 
 `keyorix-demo-idle.timer` runs `keyorix-demo idle-check` every 5 minutes. It looks at Caddy's

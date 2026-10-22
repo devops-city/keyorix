@@ -450,6 +450,7 @@ var coreWiringSteps = []coreWiringStep{
 	wireSCIMJITNotice,
 	wireRBACPermissionCatalog,
 	wireAlertsWriteRole,
+	wireGlobalProjectRoleGrantsNotice,
 	wireBootstrapToken,
 	wireSecretEncryption,
 	wireNotificationURLBackfill,

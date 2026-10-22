@@ -1,0 +1,1 @@
+AUDIT-CKPT-KEYVERSION-LAUNDER-PG	./internal/core	TestAuditCheckpointLaunder_IncrementalPathRefuses_Postgres	pg-gated	pending	-	same closure on PostgreSQL, the restarted process on its own connection pool

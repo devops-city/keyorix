@@ -87,7 +87,13 @@ func TestRemoveUserRole_EnvironmentScopeUnaffected(t *testing.T) {
 	t.Parallel()
 	c, st := newBootstrappedCore(t)
 	ctx := context.Background()
-	const proj, env = uint(7), uint(3)
+	// A real project/environment pair: the #3546 role-scope check refuses an
+	// environment that does not belong to the grant's project.
+	p, err := c.CreateProject(ctx, "env-scope-unaffected", "")
+	require.NoError(t, err)
+	e, err := c.CreateEnvironment(ctx, p.ID, "env-scope-unaffected-env")
+	require.NoError(t, err)
+	proj, env := p.ID, e.ID
 	const actor = uint(55)
 	grantGlobalAdmin(t, st, actor)
 
