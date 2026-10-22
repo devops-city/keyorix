@@ -85,6 +85,10 @@ the old DEK, or by re-running `rotate`. SQLite (single server) is unchanged.
 ## Rotate the KEK (change the master passphrase)
 
 This re-wraps the DEK under a new passphrase; it does **not** touch any database row.
+Even so, `rotate-kek` (like `migrate-provider`) opens the database to take the exclusive
+presence lock (#3513), so it fails with `cannot connect to the database to check for a running
+server` when the database is unreachable, although only key files change. Bring the database
+up first; `--force` is not a fix for this (see the runbook).
 
 ```bash
 keyorix-server admin encryption rotate-kek --config ./keyorix.yaml --confirm --new-passphrase-file ./new_master_password

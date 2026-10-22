@@ -49,6 +49,10 @@ does. That matters for the audit chain: section 5.
    before step 3 on SQLite; `verify-audit` on the configured database and `export-checkpoint`
    take the same exclusive lock). All rotation commands refuse to run beside a live server or
    another admin command. `--force` overrides that refusal: do not use it here.
+   `rotate-kek` and `migrate-provider` open the database for this lock (#3513) even though
+   only key files change, so they fail with `cannot connect to the database to check for a
+   running server` while the database is unreachable: make sure it is up (and reachable with
+   the configured credentials) before you start.
 5. **Have both passphrases ready** (for `rotate-kek`): the current one and the new one, the new
    one in a file with mode `0600` owned by you or root (the flag refuses anything group- or
    world-readable). There is no flag that takes a passphrase as an argument, by design.
