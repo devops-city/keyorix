@@ -389,6 +389,11 @@ func validateRoleDescription(description string) error {
 
 // mapRoleError translates core/storage role errors into gRPC status codes.
 func mapRoleError(err error) error {
+	// #3546: a role-scope refusal (e.g. a project-tier role with no project_id)
+	// is the caller's to fix; its message is fixed, client-safe text.
+	if scopeMsg, ok := core.RoleScopeClientMessage(err); ok {
+		return status.Error(codes.InvalidArgument, scopeMsg)
+	}
 	msg := strings.ToLower(err.Error())
 	switch {
 	case strings.Contains(msg, "not found"):

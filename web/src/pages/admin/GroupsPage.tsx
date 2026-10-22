@@ -14,6 +14,8 @@ import {
     useRemoveRoleFromGroup,
 } from '../../features/admin';
 import type { Group, Role } from '../../types/rbac';
+import { useProjects, useProjectEnvironments } from '../../features/projects/api';
+import { PROJECT_TIER_ROLE_NAMES, type RoleGrantScope } from '../../services/rbac';
 import { EXPIRY_OPTIONS, expiresAtFromPreset, formatRemaining } from '../../lib/expiry';
 
 interface GroupFormData {
@@ -134,6 +136,13 @@ export const GroupsPage: React.FC = () => {
     const { data: sharedSecrets, isLoading: sharedSecretsLoading } = useGroupSharedSecrets(secretsGroup?.id ?? null);
     // Duration preset applied to the NEXT role granted in the Manage Roles modal.
     const [roleTtl, setRoleTtl] = useState('never');
+    // Scope of the NEXT grant or removal in the Manage Roles modal: no project =
+    // global (every project). Project roles need a project (#3546).
+    const [grantProjectId, setGrantProjectId] = useState(0);
+    const [grantEnvironmentId, setGrantEnvironmentId] = useState(0);
+    const [roleScopeError, setRoleScopeError] = useState<string | null>(null);
+    const { data: projects } = useProjects();
+    const { data: grantEnvironments } = useProjectEnvironments(grantProjectId);
 
     const { data: groupsData, isLoading: groupsLoading, error: groupsError } = useGroups();
     const { data: allRoles, isLoading: rolesLoading } = useRoles();
@@ -199,14 +208,29 @@ export const GroupsPage: React.FC = () => {
         });
     };
 
+    const grantScope: RoleGrantScope = grantProjectId
+        ? { projectId: grantProjectId, ...(grantEnvironmentId ? { environmentId: grantEnvironmentId } : {}) }
+        : {};
+    const roleMutationError = assignMutation.error ?? removeMutation.error;
+
     const handleToggleRole = (role: Role) => {
         if (manageGroupId === null) return;
+        setRoleScopeError(null);
         if (assignedRoleIds.has(role.id)) {
-            removeMutation.mutate({ groupId: manageGroupId, roleId: role.id });
+            removeMutation.mutate({ groupId: manageGroupId, roleId: role.id, scope: grantScope });
         } else {
+            if (PROJECT_TIER_ROLE_NAMES.has(role.name) && !grantProjectId) {
+                setRoleScopeError(`${role.name} is a project role: choose a project above, then check it again.`);
+                return;
+            }
             // A non-permanent preset makes this a time-bound (JIT) grant.
             const expiresAt = expiresAtFromPreset(roleTtl);
-            assignMutation.mutate({ groupId: manageGroupId, roleId: role.id, ...(expiresAt ? { expiresAt } : {}) });
+            assignMutation.mutate({
+                groupId: manageGroupId,
+                roleId: role.id,
+                scope: grantScope,
+                ...(expiresAt ? { expiresAt } : {}),
+            });
         }
     };
 
@@ -420,7 +444,34 @@ export const GroupsPage: React.FC = () => {
                 title="Manage Roles"
                 size="sm"
             >
-                <div className="mb-3">
+                <div className="mb-3 space-y-3">
+                    <Select
+                        label="Project"
+                        options={[
+                            { value: '0', label: 'All projects (global)' },
+                            ...(projects ?? []).map((p) => ({ value: String(p.id), label: p.name })),
+                        ]}
+                        value={String(grantProjectId)}
+                        onChange={(e) => {
+                            setGrantProjectId(Number(e.target.value));
+                            setGrantEnvironmentId(0);
+                            setRoleScopeError(null);
+                        }}
+                        helperText="Where the next role you check applies. Project roles need a project."
+                        fullWidth
+                    />
+                    {grantProjectId !== 0 && (
+                        <Select
+                            label="Environment (optional)"
+                            options={[
+                                { value: '0', label: 'All environments' },
+                                ...(grantEnvironments ?? []).map((env) => ({ value: String(env.id), label: env.name })),
+                            ]}
+                            value={String(grantEnvironmentId)}
+                            onChange={(e) => setGrantEnvironmentId(Number(e.target.value))}
+                            fullWidth
+                        />
+                    )}
                     <Select
                         label="Grant duration"
                         options={EXPIRY_OPTIONS}
@@ -430,6 +481,11 @@ export const GroupsPage: React.FC = () => {
                         fullWidth
                     />
                 </div>
+                {(roleScopeError || roleMutationError) && (
+                    <p role="alert" className="mb-3 text-sm text-red-600">
+                        {roleScopeError ?? errMsg(roleMutationError, 'Could not change the role. Please try again.')}
+                    </p>
+                )}
                 {rolesLoading ? (
                     <div className="flex justify-center py-8">
                         <Spinner />

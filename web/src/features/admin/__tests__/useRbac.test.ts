@@ -435,7 +435,7 @@ describe('useAssignRoleToGroup', () => {
             await result.current.mutateAsync({ groupId: 1, roleId: 2, expiresAt: '2026-12-31T00:00:00Z' });
         });
 
-        expect(rbacApiMock.assignRoleToGroup).toHaveBeenCalledWith(1, 2, '2026-12-31T00:00:00Z');
+        expect(rbacApiMock.assignRoleToGroup).toHaveBeenCalledWith(1, 2, '2026-12-31T00:00:00Z', undefined);
     });
 
     it('omits expiresAt for a permanent grant', async () => {
@@ -447,7 +447,7 @@ describe('useAssignRoleToGroup', () => {
             await result.current.mutateAsync({ groupId: 1, roleId: 2 });
         });
 
-        expect(rbacApiMock.assignRoleToGroup).toHaveBeenCalledWith(1, 2, undefined);
+        expect(rbacApiMock.assignRoleToGroup).toHaveBeenCalledWith(1, 2, undefined, undefined);
     });
 
     it('invalidates ["rbac","group-roles",groupId] scoped to the mutated group on success', async () => {
@@ -485,7 +485,7 @@ describe('useRemoveRoleFromGroup', () => {
             await result.current.mutateAsync({ groupId: 1, roleId: 2 });
         });
 
-        expect(rbacApiMock.removeRoleFromGroup).toHaveBeenCalledWith(1, 2);
+        expect(rbacApiMock.removeRoleFromGroup).toHaveBeenCalledWith(1, 2, undefined);
     });
 
     it('invalidates ["rbac","group-roles",groupId] scoped to the mutated group on success', async () => {
