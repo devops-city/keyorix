@@ -1564,7 +1564,7 @@ func (ls *LocalStorage) getCachedLatestVersion(ctx context.Context, secretID uin
 		return nil, false
 	}
 	cached, ok := ls.secretMetaCache.getVersion(secretID)
-	if !ok || !cached.hasVersion {
+	if !ok {
 		return nil, false
 	}
 	liveGen, err := liveVersionsGeneration(ctx, ls.db, secretID)

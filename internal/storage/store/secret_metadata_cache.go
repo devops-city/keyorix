@@ -188,20 +188,18 @@ type secretNodeCacheEntry struct {
 // GetSecret and GetLatestSecretVersion from clobbering each other's half of
 // one shared entry.
 //
-// hasVersion distinguishes "this generation has no version row" (a cached
-// negative, latestVersion nil) from "nothing cached yet".
+// Presence in the map is "something is cached"; latestVersion nil is the cached
+// negative ("this generation has no version row").
 type secretVersionCacheEntry struct {
 	generation    versionsGeneration
-	hasVersion    bool
 	latestVersion *models.SecretVersion
 	storedAt      time.Time
 }
 
 type secretScheduleCacheEntry struct {
-	generation  scheduleGeneration
-	hasSchedule bool
-	schedule    *models.SecretAccessSchedule
-	storedAt    time.Time
+	generation scheduleGeneration
+	schedule   *models.SecretAccessSchedule
+	storedAt   time.Time
 }
 
 // secretMetadataCache is the whole cache: three independently
@@ -318,7 +316,7 @@ func (c *secretMetadataCache) setVersion(secretNodeID uint, generation versionsG
 	if _, exists := c.versions[secretNodeID]; !exists {
 		makeRoom(c.versions, c.maxEntries)
 	}
-	c.versions[secretNodeID] = secretVersionCacheEntry{generation: generation, hasVersion: true, latestVersion: version, storedAt: c.now()}
+	c.versions[secretNodeID] = secretVersionCacheEntry{generation: generation, latestVersion: version, storedAt: c.now()}
 }
 
 // cloneSecretVersion is a deep copy: a plain struct copy shares the
