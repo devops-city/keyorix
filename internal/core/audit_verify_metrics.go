@@ -40,10 +40,15 @@ var (
 		Name: "keyorix_audit_verify_state_rejected",
 		Help: "1 while the persisted verification state was found untrusted (bad signature, replayed or rolled back) and the status is therefore not_proven; it clears after a passing full verification. NaN until this process has read the state.",
 	})
+
+	auditCheckpointTruncationRefused = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "keyorix_audit_checkpoint_truncation_refused_total",
+		Help: "Checkpoint writes refused because the signed audit verification state, still authentic under the current key, proves the chain was truncated (a relabelled key_version cannot re-baseline it). Page on any increase.",
+	})
 )
 
 func init() {
-	protectedmetrics.MustRegister(auditVerifyLastSuccess, auditVerifyFailureRecorded, auditVerifyStateRejected)
+	protectedmetrics.MustRegister(auditVerifyLastSuccess, auditVerifyFailureRecorded, auditVerifyStateRejected, auditCheckpointTruncationRefused)
 	// Unknown until this process has read the persisted state, never a false 0: a
 	// restarted server must not report "no break recorded" before it has looked.
 	auditVerifyFailureRecorded.Set(math.NaN())
