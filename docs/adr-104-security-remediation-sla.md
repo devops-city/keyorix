@@ -352,3 +352,32 @@ in the meantime.
   revisit — the published numbers should not move until the internal ones
   have proven durable under the new capacity, same rule as the cadence bar
   above.
+
+## Amendment 1 (2026-10-22): pre-1.0 backports of Critical and High to the previous minor
+
+Decision (Andrei, 2026-10-22, ask `security-ir-1-support-two-lines`, option a with
+severity limits): the text above is left as written; this amendment supersedes it
+where they differ.
+
+- **Supported versions, pre-1.0.** "Latest release only" (the Published table and
+  "Reconciling with the pre-1.0 posture") is superseded. Security fixes of every
+  severity land on the current minor. Critical and High (CVSS v3.1 7.0-10.0) are also
+  backported to the previous minor. Medium and Low on the previous minor require an
+  upgrade. `SECURITY.md` § Supported Versions (pre-1.0) holds the table and is
+  authoritative, as for every published commitment in this ADR.
+- **Backports are no longer only a roadmap target.** "Backported fixes: the open
+  competitive space, not a promise" said backporting to a prior minor was not promised
+  anywhere. For Critical and High on the previous minor it now is, for the window
+  below. Its reasoning about cost still stands, which is why the scope stops at one
+  previous minor and two severities.
+- **Window.** A minor receives Critical and High backports until the later of: the
+  release of the next-but-one minor, or 30 days after its immediate successor is
+  released.
+- **Exceptions.** A fix that cannot be backported safely is not backported partially:
+  the advisory says so and names the minimum version that contains the fix.
+- **Dependencies.** Third-party dependency and Go toolchain vulnerabilities follow the
+  same rules by their severity as it applies to Keyorix.
+- **After 1.0.** Not decided here. A new policy is published with 1.0.0 and replaces
+  the pre-1.0 terms.
+- **Unchanged.** The 90-day ceiling, the one-week advance notice, the same-day
+  advisory and the internal targets are not touched by this amendment.
