@@ -136,10 +136,12 @@ detail: [`testing.md`](testing.md) §2.
 
 **Embargo handling (in place).** Per `testing.md`'s own positioning note:
 findings against embargoed third-party libraries (at this writing,
-`crewjam/saml` and `digitorus/pkcs7`, embargoed until upstream disclosure)
-are not detailed in any public document — only the *mechanism* that would
-catch or has caught such issues is described, never the specific finding,
-until the upstream advisory ships.
+`crewjam/saml`, embargoed until upstream disclosure) are not detailed in any
+public document — only the *mechanism* that would catch or has caught such
+issues is described, never the specific finding, until the upstream advisory
+ships. The `digitorus/pkcs7` embargo is lifted: GHSA-3xqc-rpq8-wgp9 has been
+public since 2026-09-14 and the pinned version contains the fix (regression
+guard `FuzzDigitorusPKCS7BoundedWork`).
 
 ## Dependency policy
 

@@ -4,10 +4,13 @@
 > the claims in [`architecture.md`](./architecture.md) and
 > [`threat-model.md`](./threat-model.md) — what runs, on what cadence, and what
 > it does and doesn't prove. Per standing policy, this document does not name
-> specific third-party-library vulnerability findings (e.g. in `crewjam/saml`
-> or `digitorus/pkcs7`) that are embargoed pending upstream disclosure — the
-> *mechanisms* that would catch or have caught such issues are described
-> without naming the finding itself.
+> specific third-party-library vulnerability findings (e.g. in `crewjam/saml`)
+> that are embargoed pending upstream disclosure — the *mechanisms* that would
+> catch or have caught such issues are described without naming the finding
+> itself. The `digitorus/pkcs7` finding is public
+> ([GHSA-3xqc-rpq8-wgp9](https://github.com/advisories/GHSA-3xqc-rpq8-wgp9),
+> published 2026-09-14) and is fixed in the pinned version; its regression
+> guard is `FuzzDigitorusPKCS7BoundedWork`.
 
 ## 1. Standing CI gates (every PR, every merge to `main`)
 
@@ -156,6 +159,7 @@ process. Full design: [`../compliance/OFFLINE-AUDIT-VERIFICATION.md`](../complia
   never clears its coverage floor (§2) or a review-coverage row of `none` are
   both recorded honestly rather than counted as coverage.
 - **Fuzzing findings against embargoed third-party libraries are not detailed
-  here** (see the note at the top of this document) — their existence as a
-  *mechanism* (the harness, the triage gate) is documented; the specific
-  findings are not, until upstream disclosure.
+  here** (see the note at the top of this document; at this writing that is
+  `crewjam/saml` only) — their existence as a *mechanism* (the harness, the
+  triage gate) is documented; the specific findings are not, until upstream
+  disclosure.
