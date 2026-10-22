@@ -1,0 +1,1 @@
+group-role-scope-pg-001	./internal/core	TestEveryRoleGrantEntryPointRefusesProjectRoleAtGlobalScope_Postgres	pg-gated	pending-merge	3546	Postgres leg of group-role-scope-001: every grant entry point refuses a project-tier role at the global scope and writes no row, on a production-migrated database.
