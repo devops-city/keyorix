@@ -32,7 +32,11 @@ import (
 // 0o044, a named constant), a comparison against an exact mode (FixFilePerms
 // compares perm != spec.Mode and judges the owner itself), an owner check made by
 // a caller rather than in the same function, packages outside guardedDirs, and
-// the cli/ and operator/ modules.
+// the cli/ and operator/ modules. The two copies of the secret-file rule this
+// cannot see (cli/cmd/secretfile.go, which masks with 0o007, and
+// server/entrypoint.sh) are held to testdata/permission-matrix.tsv instead,
+// with TestPermissionMatrix_Server as the reference run; both had missed the
+// owner rule until SECRETENV-REVIEW-1.
 func TestModeChecksAlsoJudgeTheOwner(t *testing.T) {
 	root := repoRoot(t)
 	var files []string

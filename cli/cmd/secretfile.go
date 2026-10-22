@@ -31,12 +31,20 @@ import (
 
 const maxSecretFileSize = 1 << 20
 
-// Test seams for the process identity the group rule compares against.
+// Test seams for the process identity the owner and group rules compare
+// against, and for the owner a file reports (a test cannot chown to root).
 var (
 	secretFileProcessUID    = os.Geteuid
 	secretFileProcessGroups = func() []int {
 		gs, _ := os.Getgroups()
 		return append(gs, os.Getegid())
+	}
+	secretFileOwner = func(info os.FileInfo) (uid, gid int, ok bool) {
+		st, ok := info.Sys().(*syscall.Stat_t)
+		if !ok {
+			return 0, 0, false
+		}
+		return int(st.Uid), int(st.Gid), true
 	}
 )
 
@@ -114,14 +122,14 @@ func checkSecretFileMode(info os.FileInfo) error {
 	case perm&0o050 == 0:
 		return nil
 	}
-	st, ok := info.Sys().(*syscall.Stat_t)
+	uid, gid, ok := secretFileOwner(info)
 	if !ok {
 		return bad("group-readable and its owner cannot be determined")
 	}
-	if int(st.Uid) == secretFileProcessUID() {
+	if uid == secretFileProcessUID() {
 		return bad("group-readable but owned by the running user")
 	}
-	if slices.Contains(secretFileProcessGroups(), int(st.Gid)) {
+	if slices.Contains(secretFileProcessGroups(), gid) {
 		return nil
 	}
 	return bad("group-readable by a group the process does not belong to")
