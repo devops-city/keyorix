@@ -124,8 +124,9 @@ type nodeGeneration struct {
 	cacheEpoch int64
 }
 
-// scheduleGeneration is the schedule row's own (updated_at + the whole access
-// policy). Same reasoning as nodeGeneration: updated_at can tie between two
+// scheduleGeneration is the schedule row's own (id + updated_at + the whole
+// access policy; the id makes a delete-then-recreate of an identical policy in
+// one timestamp tick a different generation). Same reasoning as nodeGeneration: updated_at can tie between two
 // writes in one stored tick, and an access schedule is a read gate, so the
 // non-clock component here is the policy itself — a tie then means the two
 // schedules ARE the same policy, and serving the cached one is correct.
@@ -133,6 +134,7 @@ type nodeGeneration struct {
 // columns on models.SecretAccessSchedule, machine-checked by
 // TestScheduleGeneration_CoversEveryPersistedScheduleField.
 type scheduleGeneration struct {
+	id                uint
 	updatedAtUnixNano int64
 	allowedDays       string
 	startHour         int
@@ -142,6 +144,7 @@ type scheduleGeneration struct {
 
 func scheduleGenerationOf(s *models.SecretAccessSchedule) scheduleGeneration {
 	return scheduleGeneration{
+		id:                s.ID,
 		updatedAtUnixNano: s.UpdatedAt.UnixNano(),
 		allowedDays:       s.AllowedDays,
 		startHour:         s.StartHour,
@@ -431,7 +434,7 @@ func liveVersionsGeneration(ctx context.Context, db *gorm.DB, secretNodeID uint)
 func liveScheduleGeneration(ctx context.Context, db *gorm.DB, secretNodeID uint) (scheduleGeneration, bool, error) {
 	var row models.SecretAccessSchedule
 	err := db.WithContext(ctx).Model(&models.SecretAccessSchedule{}).
-		Select("updated_at", "allowed_days", "start_hour", "end_hour", "timezone").
+		Select("id", "updated_at", "allowed_days", "start_hour", "end_hour", "timezone").
 		Where(sqlWhereSecretNodeID, secretNodeID).Take(&row).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {

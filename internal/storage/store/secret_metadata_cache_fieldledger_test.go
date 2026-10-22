@@ -209,9 +209,36 @@ func TestCacheEpoch_HardDeletedIDIsNeverReissued(t *testing.T) {
 // ── the schedule stamp keeps its content-derived ledger ────────────────────
 
 var scheduleGenerationExcludedFields = map[string]string{
-	"ID":           "surrogate key; nothing authorizes on it, and a schedule is addressed by SecretNodeID.",
 	"SecretNodeID": "the cache KEY itself.",
-	"CreatedAt":    "immutable after insert, so it cannot differ between two writes that tie on updated_at.",
+	"CreatedAt":    "immutable after insert, and a delete-then-recreate gets a new ID, which the stamp does carry.",
+}
+
+// A delete-then-recreate of an identical policy inside one timestamp tick must
+// not validate the old entry (#2764 review): the stamp carries the row's ID, so
+// the recreated row (new ID) is a miss even when every other term ties.
+func TestScheduleGeneration_RecreatedRowIsADifferentGeneration(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	old := &models.SecretAccessSchedule{ID: 1, SecretNodeID: 7, AllowedDays: "1,2", StartHour: 9, EndHour: 17, Timezone: "UTC", UpdatedAt: now}
+	recreated := *old
+	recreated.ID = 2
+	require.NotEqual(t, scheduleGenerationOf(old), scheduleGenerationOf(&recreated))
+	same := *old
+	require.Equal(t, scheduleGenerationOf(old), scheduleGenerationOf(&same), "anti-vacuity: an identical row must still hit")
+}
+
+func TestLiveScheduleGeneration_CarriesRowID(t *testing.T) {
+	t.Parallel()
+	ls := newCacheTestStorage(t)
+	ctx := context.Background()
+	sched := &models.SecretAccessSchedule{SecretNodeID: 7, AllowedDays: "1,2", StartHour: 9, EndHour: 17, Timezone: "UTC"}
+	require.NoError(t, ls.SetSecretAccessSchedule(ctx, sched))
+	require.NotZero(t, sched.ID)
+
+	gen, found, err := liveScheduleGeneration(ctx, ls.db, 7)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, sched.ID, gen.id, "the live probe must read the id the cached stamp was built from")
 }
 
 func TestScheduleGeneration_CoversEveryPersistedScheduleField(t *testing.T) {
