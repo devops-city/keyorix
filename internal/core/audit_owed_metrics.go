@@ -50,6 +50,14 @@ func init() {
 		}
 		return float64(n)
 	}))
+
+	// The per-process failure count behind system/info's audit_owed_failures. Unlike the
+	// gauge it needs no database read, so it still moves when the pending record could
+	// not be written either (the row is then logged as NOT queued for backfill).
+	protectedmetrics.MustRegister(prometheus.NewCounterFunc(prometheus.CounterOpts{
+		Name: "keyorix_audit_owed_failures_total",
+		Help: "Owed audit rows (every owed revocation, e.g. a plain secret suspend) the audit log refused when they were due, per process. The action itself still took effect. Each one is either pending for the backfill or logged as lost (SECURITY log line naming the user and secret).",
+	}, func() float64 { return float64(owedAuditFailures.Load()) }))
 }
 
 // PublishOwedAuditMetric makes c the source of keyorix_audit_owed_pending. The server
