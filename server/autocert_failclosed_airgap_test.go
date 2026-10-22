@@ -32,3 +32,33 @@ func TestAirgapServer_RefusesHTTPAutoCert(t *testing.T) {
 	c.Server.HTTP.TLS.CertFile, c.Server.HTTP.TLS.KeyFile = "cert.pem", "key.pem"
 	require.NoError(t, c.Validate())
 }
+
+// TestAirgapServer_S27_AutoCertTLSRefused and
+// TestAirgapServer_S27_AutoCertBadCipherRefused are the air-gap counterparts of
+// TestStartHTTPServer_S27_AutoCertTLS / _AutoCertBadCipher (autocert_tls_full_test.go,
+// not built under these tags). They take the same fixture config and assert that
+// initializeCoreService, the boot step those tests rely on, refuses it with
+// config.ErrAutoCertInAirgapBuild instead of starting an ACME server.
+func TestAirgapServer_S27_AutoCertTLSRefused(t *testing.T) {
+	initI18n(t)
+	t.Chdir(t.TempDir())
+
+	cfg := autoCertTLSFixtureConfig("0", "httptest_s27_autocert.db", "s27-autocert-tls.test.invalid")
+
+	core, _, err := initializeCoreService(cfg)
+	require.ErrorIs(t, err, config.ErrAutoCertInAirgapBuild)
+	require.Nil(t, core, "no core service may be built for a refused auto_cert config")
+}
+
+func TestAirgapServer_S27_AutoCertBadCipherRefused(t *testing.T) {
+	initI18n(t)
+	t.Chdir(t.TempDir())
+
+	cfg := autoCertTLSFixtureConfig("0", "httptest_s27_autocert_badcipher.db", "s27-autocert-badcipher.test.invalid")
+
+	// The original sets the bad cipher only AFTER initializeCoreService (Validate
+	// rejects it earlier), so the config init sees is exactly this one.
+	core, _, err := initializeCoreService(cfg)
+	require.ErrorIs(t, err, config.ErrAutoCertInAirgapBuild)
+	require.Nil(t, core)
+}
