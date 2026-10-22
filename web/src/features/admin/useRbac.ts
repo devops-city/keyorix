@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { rbacApi } from '../../services/rbac';
+import { rbacApi, type RoleGrantScope } from '../../services/rbac';
 import { groupsApi } from '../../services/groups';
 
 // ── Role hooks ──────────────────────────────────────────────────────────────
@@ -99,8 +99,17 @@ export const useAssignRoleToGroup = () => {
     const queryClient = useQueryClient();
     return useMutation({
         // expiresAt (ISO), when set, makes the grant time-bound (just-in-time access).
-        mutationFn: ({ groupId, roleId, expiresAt }: { groupId: number; roleId: number; expiresAt?: string }) =>
-            rbacApi.assignRoleToGroup(groupId, roleId, expiresAt),
+        mutationFn: ({
+            groupId,
+            roleId,
+            expiresAt,
+            scope,
+        }: {
+            groupId: number;
+            roleId: number;
+            expiresAt?: string;
+            scope?: RoleGrantScope;
+        }) => rbacApi.assignRoleToGroup(groupId, roleId, expiresAt, scope),
         onSuccess: (_data, { groupId }) =>
             queryClient.invalidateQueries({ queryKey: ['rbac', 'group-roles', groupId] }),
     });
@@ -109,8 +118,8 @@ export const useAssignRoleToGroup = () => {
 export const useRemoveRoleFromGroup = () => {
     const queryClient = useQueryClient();
     return useMutation({
-        mutationFn: ({ groupId, roleId }: { groupId: number; roleId: number }) =>
-            rbacApi.removeRoleFromGroup(groupId, roleId),
+        mutationFn: ({ groupId, roleId, scope }: { groupId: number; roleId: number; scope?: RoleGrantScope }) =>
+            rbacApi.removeRoleFromGroup(groupId, roleId, scope),
         onSuccess: (_data, { groupId }) =>
             queryClient.invalidateQueries({ queryKey: ['rbac', 'group-roles', groupId] }),
     });
