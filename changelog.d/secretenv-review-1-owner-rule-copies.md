@@ -1,0 +1,3 @@
+### Security
+
+- The CLI (`KEYORIX_TOKEN_FILE`, `KEYORIX_PASSWORD_FILE`, `KEYORIX_MFA_CODE_FILE`, `KEYORIX_ADMIN_PASSWORD_FILE`, `KEYORIX_BOOTSTRAP_TOKEN_FILE` and the other `*_FILE` credentials) and the container entrypoint (`KEYORIX_ADMIN_PASSWORD_FILE`, `KEYORIX_BOOTSTRAP_TOKEN_FILE`) now refuse a secret file owned by anyone other than the running user or root, as the server already does (#3393). Another account that owns the file can rewrite it, so it could substitute the credential, for example to choose the first admin's password. Fix: `chown` the file to the user the command runs as, or to root.
