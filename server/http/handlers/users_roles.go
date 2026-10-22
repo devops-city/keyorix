@@ -306,6 +306,9 @@ func (h *UsersRolesHandler) UpdateUserRoles(w http.ResponseWriter, r *http.Reque
 	scope := core.Scope{ProjectID: req.ProjectID, EnvironmentID: req.EnvironmentID}
 	if err := h.coreService.SetUserRoles(r.Context(), actor.UserID, userID, req.RoleIDs, scope, actor.ActorKind() == core.ActorTypeMachine); err != nil {
 		log.Printf("Error setting roles for user %d: %v", userID, err)
+		if sendRoleScopeError(w, err) {
+			return
+		}
 		if strings.Contains(err.Error(), errNotFound) {
 			sendError(w, "NotFound", errUserNotFound, http.StatusNotFound, nil)
 		} else {
