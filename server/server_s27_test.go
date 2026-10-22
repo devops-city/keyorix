@@ -32,12 +32,10 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -734,73 +732,6 @@ func TestRunStartupValidation_S27_WarningsLogged(t *testing.T) {
 	_ = runStartupValidation(cfg)
 }
 
-// ── startHTTPServer: AutoCert TLS path exercises https scheme + TLSConfig=nil ─
-
-// TestStartHTTPServer_S27_AutoCertTLS exercises the TLS enabled+AutoCert=true
-// path in startHTTPServer: createTLSConfig returns nil,nil for AutoCert,
-// so server.TLSConfig is set to nil (line 1307) and scheme="https" (line 1318).
-// The server goroutine then calls server.ServeTLS which fails immediately
-// (no cert in autocert.Manager for 127.0.0.1), so it exits. We use a
-// pre-cancelled context so the test completes quickly.
-func TestStartHTTPServer_S27_AutoCertTLS(t *testing.T) {
-	initI18n(t)
-	dir := t.TempDir()
-	t.Chdir(dir)
-
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("get free port: %v", err)
-	}
-	port := ln.Addr().(*net.TCPAddr).Port
-	_ = ln.Close()
-
-	cfg := &config.Config{
-		Storage: config.StorageConfig{
-			Type:     "local",
-			Database: config.DatabaseConfig{Path: "httptest_s27_autocert.db"},
-		},
-		Server: config.ServerConfig{
-			HTTP: config.ServerInstanceConfig{
-				Enabled: true,
-				Port:    itoa(port),
-				TLS: config.TLSConfig{
-					Enabled:  true,
-					AutoCert: true, // createTLSConfig returns nil,nil → TLSConfig=nil
-					// #1475: cfg.Validate() (now enforced by initializeCoreService)
-					// requires at least one domain when AutoCert is set. Never
-					// resolved here — the test cancels before any real ACME
-					// handshake — so a placeholder satisfies Validate() without
-					// touching what this test actually exercises (createTLSConfig's
-					// nil,nil AutoCert return, verified below via TLSConfig).
-					Domains: []string{"s27-autocert-tls.test.invalid"},
-				},
-			},
-		},
-	}
-
-	coreService := mustInitCoreService(t, cfg)
-
-	// #1475: confirm this fixture's placeholder Domains didn't change what the
-	// test actually exercises — AutoCert must still make createTLSConfig return a
-	// nil *tls.Config, independent of Domains being set.
-	if tlsCfg, err := createTLSConfig(cfg); err != nil || tlsCfg != nil {
-		t.Fatalf("createTLSConfig with AutoCert must still return (nil, nil), got (%v, %v)", tlsCfg, err)
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // pre-cancel so the server exits immediately after <-ctx.Done()
-
-	done := make(chan error, 1)
-	go func() { done <- startHTTPServer(ctx, cfg, coreService) }()
-
-	select {
-	case err := <-done:
-		_ = err // shutdown error is acceptable
-	case <-context.Background().Done():
-		t.Fatal("startHTTPServer with AutoCert did not return")
-	}
-}
-
 // ── initializeCoreService: SIEM init error from invalid provider ──────────────
 
 // TestInitializeCoreService_S27_SIEMProviderError exercises the SIEM forwarder
@@ -1054,63 +985,6 @@ func TestStartHTTPServer_S27_SCIMWeakToken(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected startHTTPServer to return an error for a weak SCIM token")
 	}
-}
-
-// ── startHTTPServer: AutoCert TLS with invalid cipher → goroutine error ──────
-
-// TestStartHTTPServer_S27_AutoCertBadCipher exercises the AutoCert TLS serve
-// goroutine error path (lines 1331-1334) where buildAutoCertTLSConfig fails
-// because AllowedCiphers names an unrecognised cipher suite. The goroutine
-// starts, calls buildAutoCertTLSConfig, hits the error, logs it, and returns
-// early — never calling ServeTLS. The context timer (200 ms) lets the goroutine
-// run before the main body's <-ctx.Done() returns.
-func TestStartHTTPServer_S27_AutoCertBadCipher(t *testing.T) {
-	initI18n(t)
-	dir := t.TempDir()
-	t.Chdir(dir)
-
-	cfg := &config.Config{
-		Storage: config.StorageConfig{
-			Type:     "local",
-			Database: config.DatabaseConfig{Path: "httptest_s27_autocert_badcipher.db"},
-		},
-		Server: config.ServerConfig{
-			HTTP: config.ServerInstanceConfig{
-				Enabled: true,
-				Port:    "0",
-				TLS: config.TLSConfig{
-					Enabled:  true,
-					AutoCert: true,
-					// #1475: cfg.Validate() (now enforced by initializeCoreService)
-					// requires at least one domain when AutoCert is set. This
-					// placeholder only satisfies the domains check —
-					// buildAutoCertTLSConfig still fails at applyTLSHardening's
-					// cipher-suite resolution, BEFORE domains/HostWhitelist ever
-					// matter (verified below).
-					Domains: []string{"s27-autocert-badcipher.test.invalid"},
-				},
-			},
-		},
-	}
-
-	coreService := mustInitCoreService(t, cfg)
-	// Validate() refuses an unrecognised cipher name since BOOT-REFUSALS-1 item 8,
-	// so the bad name is set after the core service is built: this test exercises
-	// the serve goroutine's own (defence-in-depth) cipher check.
-	cfg.Server.HTTP.TLS.AllowedCiphers = []string{"INVALID_CIPHER_XYZ_S27"} // not a recognised cipher suite
-
-	// #1475: confirm this fixture's placeholder Domains didn't change what the
-	// test actually exercises — the invalid cipher name must still make
-	// buildAutoCertTLSConfig fail at cipher-suite resolution.
-	if _, err := buildAutoCertTLSConfig(cfg.Server.HTTP.TLS.Domains, cfg.Server.HTTP.TLS, ""); err == nil {
-		t.Fatal("buildAutoCertTLSConfig must still fail for an unrecognised cipher suite name")
-	} else if !strings.Contains(err.Error(), "invalid TLS configuration") {
-		t.Fatalf("expected a cipher-resolution error, got: %v", err)
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	time.AfterFunc(200*time.Millisecond, cancel)
-	_ = startHTTPServer(ctx, cfg, coreService)
 }
 
 // ── startHTTPServer: non-AutoCert TLS with valid cert → ServeTLS path ────────

@@ -74,6 +74,7 @@ Not searched (so not in the list):
 | C | config.go:2907 | `gRPC server is enabled but no port is specified` |
 | C | config.go:2917 | `autocert is enabled but no domains are specified` |
 | R | config.go:2921 | `TLS is enabled but cert_file or key_file is missing` |
+| C | airgap_profile.go (Validate) | `server.http.tls.auto_cert: true is not available in this build` (air-gapped build only; AIRGAP-ACME-1) |
 | C | config.go:2931-2934 | `gRPC TLS auto_cert is not supported`, `gRPC TLS is enabled but cert_file or key_file is missing` |
 | C | config.go:2964 | `postgres storage requires either database.dsn or all of host, name, and user` |
 | C | config.go:2981 | `database path is not specified` |
