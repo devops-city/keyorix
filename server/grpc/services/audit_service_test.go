@@ -293,6 +293,8 @@ func TestAuditService_GetRBACAuditLogs_ReturnsRoleChanges(t *testing.T) {
 	// too (global, covers the narrower project-scoped check), unrelated to this
 	// test's actual subject (the audit log correctly records the grant).
 	require.NoError(t, db.Create(&models.UserRole{UserID: 5, RoleID: 1, ProjectID: 0}).Error)
+	// The granted role must exist: the #3546 role-scope check resolves it.
+	require.NoError(t, db.Create(&models.Role{ID: 2, Name: "editor"}).Error)
 	c := core.NewKeyorixCore(store.NewLocalStorage(db))
 	require.NoError(t, c.AssignUserRole(context.Background(), 5, 10, 2, core.Scope{ProjectID: 3}, false))
 

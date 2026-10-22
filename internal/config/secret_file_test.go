@@ -162,10 +162,21 @@ func TestRotationDSN_ReadsFileVariant(t *testing.T) {
 
 // TestSecretEnvVars_CoversEveryResolveSecretCall is the family guard: a new
 // resolveSecret("KEYORIX_...") call that is not registered in SecretEnvVars
-// would silently lack startup validation and the file-permission check.
+// would silently lack startup validation and the file-permission check. It reads
+// every non-test file of this package: the accessors that call resolveSecret
+// live with their section types in config_<domain>.go.
 func TestSecretEnvVars_CoversEveryResolveSecretCall(t *testing.T) {
-	src, err := os.ReadFile("config.go")
+	paths, err := filepath.Glob("*.go")
 	require.NoError(t, err)
+	var src []byte
+	for _, p := range paths {
+		if strings.HasSuffix(p, "_test.go") {
+			continue
+		}
+		b, err := os.ReadFile(p) // #nosec G304 -- this package's own source files
+		require.NoError(t, err)
+		src = append(src, b...)
+	}
 	re := regexp.MustCompile(`resolveSecret\("([A-Z0-9_]+)",`)
 	registered := map[string]bool{}
 	for _, n := range SecretEnvVars {

@@ -502,7 +502,7 @@ func environmentToProto(e *models.Environment) *pb.Environment {
 func machineIdentityToProto(m *models.MachineIdentity) *pb.MachineIdentity {
 	return &pb.MachineIdentity{
 		Id:             intToU32(int(m.ID)),
-		ProjectId:      intToU32(int(m.ProjectID)),
+		ProjectId:      uintToU32(m.ProjectID),
 		Name:           m.Name,
 		IdentityType:   m.IdentityType,
 		State:          m.State,

@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
@@ -25,6 +26,13 @@ func newRBACAuditCore(t *testing.T) (*KeyorixCore, *gorm.DB) {
 		&models.RolePermission{}, &models.SystemMetadata{}, &models.Group{}, &models.UserGroup{}, &models.GroupRole{},
 		&models.Project{}, &models.Environment{}, &models.SoDPolicy{},
 	))
+	// The roles and the {project 3, environment 7} scope these tests grant at
+	// must exist: the #3546 role-scope check resolves both before a grant.
+	for id := uint(1); id <= 4; id++ {
+		require.NoError(t, db.Create(&models.Role{ID: id, Name: fmt.Sprintf("audit-test-role-%d", id)}).Error)
+	}
+	require.NoError(t, db.Create(&models.Project{ID: 3, Name: "p3"}).Error)
+	require.NoError(t, db.Create(&models.Environment{ID: 7, ProjectID: 3, Name: "e7"}).Error)
 	return NewKeyorixCore(store.NewLocalStorage(db)), db
 }
 

@@ -216,6 +216,7 @@ func TestRevokeSystemRoleGrant_Success(t *testing.T) {
 func TestAssignUserRoleWithExpirySkipSoD_Success(t *testing.T) {
 	t.Parallel()
 	ms := new(MockStorage)
+	ms.On("GetRole", mock.Anything, uint(2)).Return(&models.Role{ID: 2, Name: "test-role-2"}, nil).Maybe() // #3546 role-scope check
 	ms.On("AssignRoleWithExpiry", mock.Anything, uint(1), uint(2), mock.AnythingOfType("storage.Scope"), mock.AnythingOfType("time.Time")).Return(nil)
 	ms.On("LogAuditEvent", mock.Anything, mock.Anything).Return(nil)
 	c := NewKeyorixCore(ms)
@@ -226,6 +227,7 @@ func TestAssignUserRoleWithExpirySkipSoD_Success(t *testing.T) {
 func TestAssignUserRoleWithExpirySkipSoD_StorageError(t *testing.T) {
 	t.Parallel()
 	ms := new(MockStorage)
+	ms.On("GetRole", mock.Anything, uint(2)).Return(&models.Role{ID: 2, Name: "test-role-2"}, nil).Maybe() // #3546 role-scope check
 	ms.On("AssignRoleWithExpiry", mock.Anything, uint(1), uint(2), mock.AnythingOfType("storage.Scope"), mock.AnythingOfType("time.Time")).Return(errors.New("db error"))
 	c := NewKeyorixCore(ms)
 	err := c.assignUserRoleWithExpirySkipSoD(context.Background(), 0, 1, 2, Scope{}, time.Now().Add(time.Hour))

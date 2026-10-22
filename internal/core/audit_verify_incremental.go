@@ -560,6 +560,7 @@ func (c *KeyorixCore) writeIncrementalCheckpointLocked(ctx context.Context, st *
 		st.Cycle = nil
 		st.LastCheck = &auditTailCheck{At: c.now(), Valid: true, CheckpointID: cp.ID, ThroughID: cp.HeadID,
 			HeadHash: cp.HeadHash, CertifiedEvents: cp.ChainedEvents, ChainedEvents: cp.ChainedEvents, Checkpointed: true}
+		st.Pin = &auditVerifyPin{Events: cp.ChainedEvents, HeadID: cp.HeadID, HeadHash: cp.HeadHash}
 		return cp, nil, nil
 	}
 
@@ -570,6 +571,16 @@ func (c *KeyorixCore) writeIncrementalCheckpointLocked(ctx context.Context, st *
 	if !v.Valid {
 		nf := recordAuditVerifyFailure(st, now, "tail", v.FirstBrokenID, v.Reason)
 		return nil, nf, fmt.Errorf("%w a chain that does not verify: %s", ErrAuditCheckpointRefused, v.Reason)
+	}
+	// The tail check stands on the latest authentic checkpoint, which an actor
+	// can make an older one by deleting newer rows and relabelling the mark.
+	// Same guard as the full-walk path (writeAuditCheckpointLocked).
+	if reason, tampered, err := c.auditVerifyStateTruncation(ctx, t.certified); err != nil {
+		return nil, nil, err
+	} else if tampered {
+		rerr := c.refuseAuditStateTruncation(reason)
+		st.LastCheck.Valid, st.LastCheck.Reason = false, reason
+		return nil, recordAuditVerifyFailure(st, now, "tail", nil, rerr.Error()), rerr
 	}
 	if st.Failure != nil {
 		return nil, nil, auditFailureRefusal(st.Failure)
@@ -587,6 +598,7 @@ func (c *KeyorixCore) writeIncrementalCheckpointLocked(ctx context.Context, st *
 	c.anchorCheckpoint(ctx, newCP)
 	c.advanceAuditHighWater(ctx, newCP)
 	st.LastCheck.CheckpointID = newCP.ID
+	st.Pin = &auditVerifyPin{Events: newCP.ChainedEvents, HeadID: newCP.HeadID, HeadHash: newCP.HeadHash}
 	return newCP, nil, nil
 }
 

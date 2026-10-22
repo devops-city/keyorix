@@ -599,7 +599,14 @@ func (c *KeyorixCore) AssignMachineRole(ctx context.Context, machineID, roleID u
 	if err := c.requireEnvironmentInProject(ctx, scope); err != nil {
 		return err
 	}
-	if _, err := c.storage.GetRole(ctx, roleID); err != nil {
+	role, err := c.storage.GetRole(ctx, roleID)
+	if err != nil {
+		return err
+	}
+	// #3546: machineInProject already refuses project 0 (a machine identity
+	// always belongs to a project); this keeps the role-scope rule explicit on
+	// every grant write.
+	if err := c.requireScopeValidForRoleName(ctx, role.Name, scope); err != nil {
 		return err
 	}
 	if err := c.requireGranterHoldsRolePermissions(ctx, actorID, roleID, scope, actorIsMachine); err != nil {

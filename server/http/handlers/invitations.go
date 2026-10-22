@@ -145,6 +145,9 @@ func (h *CatalogHandler) CreateGlobalInvitation(w http.ResponseWriter, r *http.R
 		assignments = append(assignments, core.ProjectAssignment{ProjectID: a.ProjectID, Role: a.Role})
 	}
 	inv, prov, err := h.coreService.InviteGlobalWithLink(r.Context(), body.Email, body.Role, assignments, actor.UserID, machineID(r))
+	if err != nil && inv == nil && sendRoleScopeError(w, err) {
+		return
+	}
 	if err != nil {
 		// A failed supersede+create of the setup token itself must never be reported
 		// as success (#2419): unlike a config/throttle/delivery failure below, this

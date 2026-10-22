@@ -59,6 +59,7 @@ package http
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -142,6 +143,25 @@ var awControlMustHit = []string{
 	"POST /api/v1/secrets/", "PUT /api/v1/secrets/{id}", "POST /api/v1/groups/", "POST /api/v1/roles/",
 	"POST /api/v1/projects", "POST /api/v1/secrets/{id}/share", "POST /api/v1/users/",
 	"POST /api/v1/projects/{id}/members", "POST /api/v1/projects/{id}/environments",
+}
+
+// awControlRoleOverride replaces the shared body's "role" for the admin positive
+// control on routes that read it as a GLOBAL system role: project_admin is a
+// project-tier role, refused at the global scope since #3546 (the deny walk keeps
+// the shared body, where the refusal is part of what it checks).
+var awControlRoleOverride = map[string]string{
+	"POST /api/v1/users/": "system_auditor",
+}
+
+// awWithRole returns body with its "role" field set to role.
+func awWithRole(t *testing.T, body []byte, role string) []byte {
+	t.Helper()
+	var m map[string]any
+	require.NoError(t, json.Unmarshal(body, &m))
+	m["role"] = role
+	out, err := json.Marshal(m)
+	require.NoError(t, err)
+	return out
 }
 
 var awPersonas = []string{
@@ -393,7 +413,11 @@ func (w *awWorld) awControl(t *testing.T, mutating []awRoute, body []byte) (map[
 			continue // would end the admin session the rest of the control run needs
 		}
 		path := w.awPaths(rt.Path)[0]
-		code, resp := awDo(w.a, rt.Method, w.tokens["admin"], path, w.awBodyN(len(codes)+len(hit)+1))
+		reqBody := w.awBodyN(len(codes) + len(hit) + 1)
+		if role, ok := awControlRoleOverride[rt.key()]; ok {
+			reqBody = awWithRole(t, reqBody, role)
+		}
+		code, resp := awDo(w.a, rt.Method, w.tokens["admin"], path, reqBody)
 		if code >= 200 && code < 300 {
 			hit[rt.key()] = true
 		} else {

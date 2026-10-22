@@ -1,0 +1,4 @@
+### Documentation
+- **Audit checkpoint signing key is KEK-derived.** `docs/CONFIGURATION.md` called it DEK-derived; the code (`deriveAuditCheckpointKey`, `internal/encryption/keymanager_lifecycle.go`) and the key rotation runbook derive it from the KEK, so it survives a DEK rotation and changes only with the KEK.
+- **Key rotation docs say `rotate-kek` and `migrate-provider` need the database.** Both open it for the exclusive presence lock (#3513) and fail with `cannot connect to the database to check for a running server` when it is unreachable, even though only key files change (`docs/operator/j6-key-rotation.md`, `docs/operator/key-rotation-runbook.md`).
+- **`docs/SELF_HOSTING.md` upgrade section** says which compose image tags are pinned to an exact release (the two Keyorix images) and which follow a major version (`postgres:15-alpine`, `caddy:2-alpine`), and states when the MFA grace period after an upgrade ends.
