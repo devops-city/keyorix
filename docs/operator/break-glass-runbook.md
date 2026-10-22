@@ -88,7 +88,8 @@ accepting writes.
    verdict is **INDETERMINATE** (exit code 2): the chain is intact but known to be missing
    those rows. When they are settled the section says `none` and the verdict is VALID
    again. On a database the verifier's role cannot read `break_glass_activations` from,
-   the section says NOT CHECKED and the "does NOT prove" list says so.
+   the section says NOT CHECKED and the "does NOT prove" list says so. For any other
+   BROKEN or INDETERMINATE verdict, see `docs/operator/audit-chain-break-runbook.md`.
 
 An unsettled degraded activation is never removed by `data_retention.break_glass_days`.
 

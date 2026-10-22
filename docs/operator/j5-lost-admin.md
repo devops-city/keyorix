@@ -7,6 +7,9 @@ shipped config (`security.require_mfa: true`, the default) and a server that ser
 with the certificate `admin init` generated, so the CLI needs `--ca-file certs/server.crt`
 (or `keyorix config set ca_file`).
 
+A user who has only lost their authenticator code, and is not locked out of everything, may not
+need this page: see [lost-totp-runbook.md](lost-totp-runbook.md) for the decision tree.
+
 ## 0. Before you're locked out: generate a recovery key
 
 Do this once, ahead of time, and store the printed key somewhere offline (a password
