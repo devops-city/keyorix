@@ -184,13 +184,37 @@ func refuseForceUnderDatabaseKeyDirLock(cfg *config.Config, lockErr error) error
 	return fmt.Errorf("could not acquire this database's exclusive lock (%v), and --force cannot override it with storage.encryption.key_dir_lock: database: running replicas hold no key-directory lock, so this lock is what keeps admin commands away from them. Stop every replica first (scale to 0); a lock left by a dead connection is released when PostgreSQL closes it (emergency SQL: %s)", lockErr, keyDirLockEmergencySQL)
 }
 
-// stoppedServerHint is appended to the held-lock refusal: the Docker Compose
-// sequence docs/SELF_HOSTING.md documents for running an admin command with the
-// server stopped (#2540). `exec` runs inside the live backend, so it can never work.
-const stoppedServerHint = "With Docker Compose, run admin commands in a throwaway container while the server is stopped:\n" +
-	"  docker compose stop backend\n" +
-	"  docker compose run --rm backend ./keyorix-server admin <command>\n" +
-	"  docker compose start backend"
+// stoppedServerHint is appended to the held-lock refusal. Inside a container (a
+// `docker compose exec` session, #2540) it names the Docker Compose sequence
+// docs/SELF_HOSTING.md documents for running an admin command with the server
+// stopped (`exec` runs inside the live backend, so it can never work). Anywhere
+// else (a systemd or nohup binary install, #3524) there is no compose service to
+// name, so the hint is generic.
+func stoppedServerHint() string {
+	if runningInContainer() {
+		return "With Docker Compose, run admin commands in a throwaway container while the server is stopped:\n" +
+			"  docker compose stop backend\n" +
+			"  docker compose run --rm backend ./keyorix-server admin <command>\n" +
+			"  docker compose start backend"
+	}
+	return "Run admin commands with the server stopped: stop the server (for example 'systemctl stop keyorix'), " +
+		"run this command again, then start the server."
+}
+
+// runningInContainer reports whether this process runs in a Docker/Podman
+// container that is not a Kubernetes pod (where a compose hint would be wrong).
+// A var so tests can pin either answer.
+var runningInContainer = func() bool {
+	if os.Getenv("KUBERNETES_SERVICE_HOST") != "" {
+		return false
+	}
+	for _, f := range []string{"/.dockerenv", "/run/.containerenv"} {
+		if _, err := os.Stat(f); err == nil {
+			return true
+		}
+	}
+	return false
+}
 
 // acquireDatabaseLock is the shared guard every admin command runs before
 // doing anything, and HOLDS for its entire operation -- not merely a check
@@ -258,7 +282,7 @@ func acquireDatabaseLock(cfg *config.Config) (*serverguard.Exclusive, error) {
 			// #2540: say HOW to stop it on the documented Docker Compose path. Operators
 			// who copy an old `docker compose exec backend ... admin ...` line land here,
 			// and the refusal itself is correct (the command needs the database to itself).
-			return nil, fmt.Errorf("a Keyorix server (or another admin command) appears to be using this database (%v) — admin commands must not run concurrently with either; stop it first, or pass --force if you are certain this is safe.\n%s", err, stoppedServerHint)
+			return nil, fmt.Errorf("a Keyorix server (or another admin command) appears to be using this database (%v) — admin commands must not run concurrently with either; stop it first, or pass --force if you are certain this is safe.\n%s", err, stoppedServerHint())
 		}
 		return nil, fmt.Errorf("cannot connect to the database to check for a running server: %v — admin commands must not run concurrently with a server, but this could not be verified; pass --force if you are certain this is safe", err)
 	}
