@@ -160,8 +160,7 @@ func (ls *LocalStorage) GetSecretScheduleAndLatestVersion(ctx context.Context, s
 			out.LatestVersionErr = fmt.Errorf("%s: %w", i18n.T("ErrorVersionNotFound", nil), storage.ErrSecretVersionNotFound)
 			return out, nil
 		}
-		cp := *version
-		out.LatestVersion = &cp
+		out.LatestVersion = cloneSecretVersion(version)
 		return out, nil
 	}
 	out.LatestVersion, out.LatestVersionErr = ls.readLatestSecretVersionRow(ctx, secretNodeID, liveGen, nil)

@@ -84,6 +84,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"sync"
@@ -318,6 +319,20 @@ func (c *secretMetadataCache) setVersion(secretNodeID uint, generation versionsG
 		makeRoom(c.versions, c.maxEntries)
 	}
 	c.versions[secretNodeID] = secretVersionCacheEntry{generation: generation, hasVersion: true, latestVersion: version, storedAt: c.now()}
+}
+
+// cloneSecretVersion is a deep copy: a plain struct copy shares the
+// EncryptedValue/EncryptionMetadata backing arrays, so a caller that decrypts or
+// wipes its result in place would corrupt the cached entry. Used on both sides
+// of the cache (what is stored, what a hit returns).
+func cloneSecretVersion(v *models.SecretVersion) *models.SecretVersion {
+	if v == nil {
+		return nil
+	}
+	cp := *v
+	cp.EncryptedValue = bytes.Clone(v.EncryptedValue)
+	cp.EncryptionMetadata = bytes.Clone(v.EncryptionMetadata)
+	return &cp
 }
 
 func (c *secretMetadataCache) getSchedule(secretNodeID uint) (secretScheduleCacheEntry, bool) {
