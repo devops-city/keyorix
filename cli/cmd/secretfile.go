@@ -9,11 +9,13 @@
 //   - NAME and NAME_FILE both set -> error (no precedence).
 //   - unreadable / empty / not a regular file (a FIFO is refused, not waited on) /
 //     over 1 MiB -> error; never a fallback to NAME or a prompt.
-//   - the file's mode is judged on the opened descriptor: 0600/0400, or -- for a
-//     file an orchestrator mounted, i.e. not owned by the running user -- group-read
-//     (0440/0640) when the file's group is one the process holds (fsGroup,
-//     group_add). Anything for "other", group-write and setuid/setgid/sticky are
-//     always refused.
+//   - the file's mode and owner are judged on the opened descriptor: owned by the
+//     running user or root (#3393: any other owner can rewrite it), and 0600/0400,
+//     or -- for a root-owned file an orchestrator mounted -- group-read (0440/0640)
+//     when the file's group is one the process holds (fsGroup, group_add).
+//     Anything for "other", group-write and setuid/setgid/sticky are always refused.
+//   - internal/secretenv/testdata/permission-matrix.tsv is the rule as a table;
+//     TestLookupSecretEnv_PermissionMatrix holds this copy to it.
 //   - neither the value nor the contents ever appear in an error.
 package cmd
 
@@ -110,7 +112,7 @@ func checkSecretFileMode(info os.FileInfo) error {
 	mode := info.Mode()
 	perm := mode.Perm()
 	bad := func(why string) error {
-		return fmt.Errorf("secret file mode %04o is too open (%s) -- refusing to trust it; chmod 0600/0400, or mount it owned by another user (e.g. root) with a group the process belongs to and mode 0440", perm, why)
+		return fmt.Errorf("secret file mode %04o is too open (%s) -- refusing to trust it; chmod 0600/0400, or mount it owned by root with a group the process belongs to and mode 0440", perm, why)
 	}
 	switch {
 	case mode&(os.ModeSetuid|os.ModeSetgid|os.ModeSticky) != 0:
@@ -119,14 +121,22 @@ func checkSecretFileMode(info os.FileInfo) error {
 		return bad("accessible to other users")
 	case perm&0o020 != 0:
 		return bad("writable by its group")
-	case perm&0o050 == 0:
-		return nil
 	}
+	// Owner (#3393, internal/secretenv.CheckOwner): whoever owns the file can chmod
+	// and rewrite it, so it must be the running user or root, whatever the mode.
 	uid, gid, ok := secretFileOwner(info)
 	if !ok {
-		return bad("group-readable and its owner cannot be determined")
+		return errors.New("secret file owner cannot be determined -- refusing to trust it")
 	}
-	if uid == secretFileProcessUID() {
+	euid := secretFileProcessUID()
+	if uid != euid && uid != 0 {
+		return fmt.Errorf("secret file is owned by uid %d, which is neither the running user (uid %d) nor root -- refusing to trust it (that account can replace the file); chown it to root, keeping the group the process reads it through, or to uid %d", uid, euid, euid)
+	}
+	if perm&0o050 == 0 {
+		return nil
+	}
+	// Group-readable: only a root-owned (orchestrator) file with a group we hold.
+	if uid == euid {
 		return bad("group-readable but owned by the running user")
 	}
 	if slices.Contains(secretFileProcessGroups(), gid) {
