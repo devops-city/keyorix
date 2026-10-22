@@ -23,9 +23,15 @@
   The "pending-record write fails too" case (`CreatePendingAuditEvent` refused): the revocation still
   succeeds, the failure is a loud `SECURITY:` log, and the audit row is attempted directly after the
   commit, so the final state equals an unfaulted run (the audit row is written once, nothing is
-  queued). The only real loss is when that direct write fails as well: it is logged as `NOT queued
-  for backfill (record it by hand)` and is an audit-trail GAP, not an outcome by design; the fuzz
-  oracle does not accept it (it reads as "neither an audit row nor a pending row"). Direction-dependent operations choose the
+  queued). When that direct write fails as well (or is not attempted because an earlier row of the
+  same transaction was refused), the row is recorded as a pending row after the commit
+  (`queueOwedAuditLate`, SUPERFAN-1022 note 1), so the backfill writes it, after a restart too
+  (`TestOwedAudit_RecordAndAppendRefused_RowsSurviveARestart`). The only real loss is when that late
+  record fails too: it is logged as `NOT queued for backfill (record it by hand)` and is an
+  audit-trail GAP, not an outcome by design; the fuzz oracle does not accept it (it reads as
+  "neither an audit row nor a pending row"). The late record is not claimed against an earlier
+  attempt, so an append that committed but reported an error can be written twice (a duplicate,
+  never a loss). Direction-dependent operations choose the
   rule from the change itself (`auditedByDirection`: account state into a blocked state and machine
   suspend/revoke are revocations, back to active is a grant that fails closed).
   Why: Andrei 2026-10-14; before AUDIT-TX-3 these wrote a plain best-effort row after the commit

@@ -168,7 +168,7 @@ func (c *KeyorixCore) settleOwedAudit(ctx context.Context, sink *auditForwardSin
 	refused := false
 	for _, e := range sink.owedRows {
 		if refused {
-			c.noteOwedAuditNotAttempted(e.pendingID, e.event)
+			c.noteOwedAuditNotAttempted(ctx, e.pendingID, e.event)
 			continue
 		}
 		refused = !c.writeOwedAudit(ctx, e.pendingID, e.event)
@@ -177,11 +177,19 @@ func (c *KeyorixCore) settleOwedAudit(ctx context.Context, sink *auditForwardSin
 
 // noteOwedAuditNotAttempted is writeOwedAudit's failure report for a row not tried
 // because the audit log refused the one before it.
-func (c *KeyorixCore) noteOwedAuditNotAttempted(pendingID uint, event *models.AuditEvent) {
+func (c *KeyorixCore) noteOwedAuditNotAttempted(ctx context.Context, pendingID uint, event *models.AuditEvent) {
 	owedAuditFailures.Add(1)
 	if pendingID == 0 {
-		log.Printf("SECURITY: audit event %q was not attempted (the audit log refused the previous owed row) and is NOT queued for backfill (record it by hand): %s",
-			event.EventType, event.Description)
+		encoded, err := json.Marshal(event)
+		if err == nil {
+			if pendingID, err = c.queueOwedAuditLate(ctx, event.EventType, encoded); err == nil {
+				log.Printf("SECURITY: audit event %q was not attempted (the audit log refused the previous owed row); queued for backfill late as pending audit event %d: %s",
+					event.EventType, pendingID, event.Description)
+				return
+			}
+		}
+		log.Printf("SECURITY: audit event %q was not attempted (the audit log refused the previous owed row) and is NOT queued for backfill (record it by hand): %s: %v",
+			event.EventType, event.Description, err)
 		return
 	}
 	log.Printf("SECURITY: audit event %q was not attempted (the audit log refused the previous owed row); queued for backfill as pending audit event %d: %s",
@@ -241,6 +249,13 @@ func (c *KeyorixCore) writeOwedAudit(ctx context.Context, pendingID uint, event 
 			log.Printf("SECURITY: panic settling owed audit event %q (pending %d): %v", event.EventType, pendingID, r)
 		}
 	}()
+	// A row with no pending record (the collect-only fallback: the record could not be
+	// written in the change's transaction) is encoded now, before the append can touch
+	// it, so it can still be queued if the append fails.
+	var late []byte
+	if pendingID == 0 {
+		late, _ = json.Marshal(event)
+	}
 	wctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), owedAuditWait)
 	defer cancel()
 	_, err := c.appendOwedAudit(wctx, pendingID, 0, event)
@@ -249,6 +264,15 @@ func (c *KeyorixCore) writeOwedAudit(ctx context.Context, pendingID uint, event 
 	}
 	owedAuditFailures.Add(1)
 	if pendingID == 0 {
+		if late != nil {
+			if id, qerr := c.queueOwedAuditLate(ctx, event.EventType, late); qerr == nil {
+				log.Printf("SECURITY: audit event %q could not be written after its effect committed; queued for backfill late as pending audit event %d: %s; user=%v secret=%v: %v",
+					event.EventType, id, event.Description, uintOrNil(event.UserID), uintOrNil(event.SecretNodeID), err)
+				return false
+			} else {
+				err = fmt.Errorf("%w; queueing it for backfill failed too: %w", err, qerr)
+			}
+		}
 		log.Printf("SECURITY: audit event %q could not be written after its effect committed and is NOT queued for backfill (record it by hand): %s; user=%v secret=%v: %v",
 			event.EventType, event.Description, uintOrNil(event.UserID), uintOrNil(event.SecretNodeID), err)
 		return false
@@ -259,6 +283,29 @@ func (c *KeyorixCore) writeOwedAudit(ctx context.Context, pendingID uint, event 
 		log.Printf("SECURITY: could not note the failure on pending audit event %d: %v", pendingID, rerr)
 	}
 	return false
+}
+
+// queueOwedAuditLate records an owed row whose effect committed WITHOUT its pending
+// record (the collect-only fallback) once its append failed or was not attempted, so
+// the backfill still writes it and it survives a restart (SUPERFAN-1022 note 1). It is
+// a write of its own after the commit, with a bounded wait: a second chance for the
+// record the change's transaction could not write, not a replacement for it. Exactly
+// once is kept by the backfill's claim; the one case it cannot rule out is an append
+// that committed but reported an error (a lost commit acknowledgement), which can then
+// be written twice -- a duplicate row, never a lost one.
+func (c *KeyorixCore) queueOwedAuditLate(ctx context.Context, eventType string, encoded []byte) (id uint, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("panic queueing owed audit event: %v", r)
+		}
+	}()
+	wctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), owedAuditWait)
+	defer cancel()
+	p := &models.PendingAuditEvent{EventType: eventType, Event: string(encoded)}
+	if err := c.storage.CreatePendingAuditEvent(wctx, p); err != nil {
+		return 0, err
+	}
+	return p.ID, nil
 }
 
 // appendOwedAudit claims pendingID (when non-zero) and appends event in one
