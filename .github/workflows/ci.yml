@@ -37,6 +37,11 @@ on:
         required: false
         default: ''
         type: string
+      verbose_tests:
+        description: 'Run the test-suite go test step with -v so the log carries real per-test timings (CI-WEIGHTS-1)'
+        required: false
+        default: false
+        type: boolean
   # Nightly full run on main. A push to main skips test-suite, e2e-smoke and
   # most other jobs whenever the merge queue already passed that exact SHA
   # (changes.queue_verified), so "main green" said nothing about the journeys:
@@ -1395,6 +1400,7 @@ jobs:
         if: steps.leg.outputs.run == 'true'
         env:
           LEG_ONLY: ${{ steps.leg.outputs.only }}
+          VERBOSE_TESTS: ${{ github.event_name == 'workflow_dispatch' && inputs.verbose_tests || false }}
         run: |
           # Which packages each leg runs, and why each excluded package is
           # excluded, now lives in one place (scripts/ci-test-legs.sh) shared
@@ -1494,8 +1500,15 @@ jobs:
           # output (build-and-test's "Check coverage floor" step, COVERAGE_FLOOR
           # above). If someone proposes enabling Go's test cache here, that's
           # the trade being proposed, whether or not the proposal names it.
+          #
+          # -v only on a workflow_dispatch with verbose_tests=true (per-test
+          # timings for scripts/ci-test-weights.tsv); never on PR/queue/push.
+          verbose_flag=""
+          if [ "$VERBOSE_TESTS" = "true" ]; then
+            verbose_flag="-v"
+          fi
           # shellcheck disable=SC2086
-          go test -race -timeout ${{ matrix.timeout }}s -run "$run_filter" $shuffle_flag -coverprofile=${{ matrix.coverage-file }} -covermode=atomic $pkgs
+          go test -race $verbose_flag -timeout ${{ matrix.timeout }}s -run "$run_filter" $shuffle_flag -coverprofile=${{ matrix.coverage-file }} -covermode=atomic $pkgs
 
       # This job is the ONLY one with a Postgres service container (see this
       # job's own KEYORIX_TEST_PG_DSN comment above), so it is the only place
