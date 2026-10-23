@@ -24,6 +24,13 @@ exactly N days before the lookup counts.
 - **API.** The access-review response carries `activity_window_days`. An entry without
   `last_used_at` had no use in that window. Campaigns carry `activity_window_days` too,
   fixed when the campaign was opened.
+- **Grants the review cannot list.** A role grant with `project_id` 0 and an
+  `environment_id` of this project applies inside that environment, but it is not one
+  of the review's entries. New grants like this are refused (#3546); older ones are kept.
+  While one exists, the review and every campaign opened from it are `degraded`. Each
+  such grant gets one `degraded_reasons` entry, which names the grant and the fix: grant
+  the role again with the project's `project_id`, then remove the old grant. The server
+  also logs each one at startup.
 - **Web UI.** An entry or campaign item with no use reads "no use in the last Nd"
   (the tooltip of a used one says "last N days").
 - **Campaign CSV export** (`.../campaigns/{id}/export.csv`). The last column,
