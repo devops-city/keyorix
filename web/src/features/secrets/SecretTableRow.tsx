@@ -186,7 +186,7 @@ export const SecretTableRow: React.FC<SecretTableRowProps> = ({
                     <div className="text-xs">by {secret.owner}</div>
                 </div>
             </td>
-            <td className="px-3 py-4 whitespace-nowrap text-right text-sm font-medium">
+            <td className="sticky right-0 bg-surface px-3 py-4 whitespace-nowrap text-right text-sm font-medium">
                 <div className="flex items-center justify-end gap-0.5">
                     <button
                         type="button"

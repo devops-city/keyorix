@@ -477,7 +477,7 @@ const SecretsTable: React.FC<SecretsTableProps> = ({
                                 {h}
                             </th>
                         ))}
-                        <th className="px-6 py-3 text-right text-xs font-medium text-base-muted  uppercase tracking-wider min-w-[180px]">
+                        <th className="sticky right-0 bg-subtle px-6 py-3 text-right text-xs font-medium text-base-muted  uppercase tracking-wider min-w-[180px]">
                             Actions
                         </th>
                     </tr>
