@@ -265,8 +265,9 @@ unwraps the backed-up DEK).
 this stack is configured for):
 
 ```sh
-docker compose exec backend ./keyorix-server admin backup --output /tmp/backup.tar.gz
-docker compose cp backend:/tmp/backup.tar.gz ./keyorix-backup-$(date +%F).tar.gz
+docker compose exec -T backend ./keyorix-server admin backup --output /tmp/backup.tar.gz
+# /tmp in the container is a tmpfs, which `docker compose cp` cannot read: stream the file out instead
+(umask 077; docker compose exec -T backend cat /tmp/backup.tar.gz > ./keyorix-backup-$(date +%F).tar.gz)
 ```
 
 > **Version note.** The live (beside-the-server) Postgres backup below is not in
@@ -319,8 +320,8 @@ must not be group- or world-readable.
 
 ```sh
 docker compose stop backend            # (no-op on a freshly wiped host)
-sudo chown 1001 ./keyorix-backup-YYYY-MM-DD.tar.gz
 chmod 600 ./keyorix-backup-YYYY-MM-DD.tar.gz
+sudo chown 1001 ./keyorix-backup-YYYY-MM-DD.tar.gz   # after chmod: once it is owned by 1001 you can no longer chmod it
 docker compose run --rm -v "$PWD/keyorix-backup-YYYY-MM-DD.tar.gz:/tmp/backup.tar.gz:ro" \
   backend ./keyorix-server admin restore --input /tmp/backup.tar.gz
 docker compose up -d

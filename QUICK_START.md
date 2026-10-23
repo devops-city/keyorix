@@ -23,7 +23,7 @@ only the CLI (Linux and macOS). For the server and CLI, pick your platform's suf
 `linux_arm64`):
 
 ```bash
-V=v0.96.1   # the release you want (this one has `admin generate-secrets` and `mfa enroll`)
+V=v0.96.3   # the release you want (any release from v0.96.0 has `admin generate-secrets` and `mfa enroll`)
 P=darwin_arm64   # your platform
 BASE=https://github.com/keyorixhq/keyorix/releases/download/$V
 curl -fsSLO $BASE/keyorix-server_$P
@@ -40,9 +40,10 @@ current directory, drop the `bin/`: `./keyorix`, `./keyorix-server`.
 
 A release binary is the release's own behaviour: this page tracks `main`, so a
 command below can be newer than the release. For example `keyorix mfa enroll`
-does not exist in v0.95.3, and the v0.96.1 CLI has no `KEYORIX_PASSWORD_FILE` or
-`KEYORIX_MFA_CODE_FILE` (only `main` does): with a release CLI, type the password
-and the code at the prompts. `keyorix-server --version` (or `keyorix-server admin version`)
+does not exist in v0.95.3, and the v0.96.3 CLI has no `KEYORIX_PASSWORD_FILE`, `KEYORIX_MFA_CODE`,
+`KEYORIX_MFA_CODE_FILE` or `keyorix doctor` (only `main` does): with a release CLI, type the password
+and the code at the prompts, or in a script pipe the password on stdin and pass `--mfa-code <code>`.
+`keyorix-server --version` (or `keyorix-server admin version`)
 prints the version, commit, build date and Go version. The server itself has no
 `--config` flag (it reads `KEYORIX_CONFIG_PATH`, else `./keyorix.yaml`; only the
 `keyorix-server admin ...` subcommands take `--config`); the CLI has
@@ -248,18 +249,19 @@ location: `~/.config/keyorix/credentials.yaml` on Linux,
 there; none of them take `--server` again.
 
 With no terminal (a script, CI), `login` reads `KEYORIX_PASSWORD` or the file named
-by `KEYORIX_PASSWORD_FILE` (a 0600 file; on `main`, not in the v0.96.1 release).
+by `KEYORIX_PASSWORD_FILE` (a 0600 file; on `main`, not in the v0.96.3 release).
 
 `login` asks for things in this order: **password first, then the authenticator code**
 (only when the account has MFA on). A script should not pipe both on stdin (the second
 line is lost); set `KEYORIX_PASSWORD_FILE` and `KEYORIX_MFA_CODE` (or
-`KEYORIX_MFA_CODE_FILE`) instead. `keyorix mfa activate` asks in the opposite order:
+`KEYORIX_MFA_CODE_FILE`) instead (on `main`; a release CLI takes the password on stdin
+and `--mfa-code <code>`). `keyorix mfa activate` asks in the opposite order:
 **code first, then the account password** (`KEYORIX_MFA_CODE` and
 `KEYORIX_PASSWORD[_FILE]` work there too).
 
 To check the connection at any time, run `keyorix status` (server URL, whether you are
 logged in, health, version compatibility), or `keyorix doctor` (on `main`, not in the
-v0.96.1 release) for a read-only checklist (reachability, TLS, version, clock, login,
+v0.96.3 release) for a read-only checklist (reachability, TLS, version, clock, login,
 audit chain) that says what to do about each failure; it exits 1 when a check failed.
 On the server host, `keyorix-server admin diagnose` runs the checks
 server startup depends on (config parse, encryption-key access, database open,
@@ -277,6 +279,12 @@ Enrol once, right after the first login:
 ./bin/keyorix mfa enroll        # prints an otpauth:// URI and a base32 secret (no QR code is drawn)
 ./bin/keyorix mfa activate      # prompts for the code your authenticator app shows, then your password
 ```
+
+In a script, `mfa activate` reads the code and then the password from stdin one read at a
+time, so two lines piped in at once lose the second (`Error: password is required`, with or
+without a trailing newline). Give the password a moment after the code and end it with a
+newline: `{ echo "$CODE"; sleep 1; cat secrets/admin_password; echo; } | ./bin/keyorix mfa activate`
+(the `--code` and `--password` flags exist too, but are visible to other local users in `ps`).
 
 In the web UI the same step is Profile → Security → Enable (TOTP) or a passkey.
 

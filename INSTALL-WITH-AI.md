@@ -273,12 +273,14 @@ curl -fs --retry 30 --retry-connrefused --retry-delay 1 --cacert certs/server.cr
 
 Show the step 13 output, then tell the user:
 
-- **Back up together, offline:** `keys/`, `keyorix.db` and `keyorix.yaml`, or in one
+- **Back up together, offline:** `keys/`, `keyorix.db`, `keyorix.yaml` and
+  `secrets/metrics_token` (the config names it), or in one
   archive: stop the server, run
   `KEYORIX_MASTER_PASSWORD_FILE=secrets/master_password ./bin/keyorix-server admin backup --output ./keyorix-backup.tar.gz --config ./keyorix.yaml`,
   start the server again and store the archive off this host. To restore on a new
-  host, create an empty install directory with `bin/`, `keyorix.yaml`, `certs/` and
-  `secrets/master_password` (the same passphrase) and run `admin restore --input <archive> --config ./keyorix.yaml`;
+  host, create an empty install directory with `bin/`, `keyorix.yaml`, `certs/`,
+  `secrets/master_password` (the same passphrase) and `secrets/metrics_token` (the config
+  names it, the server will not start without it) and run `admin restore --input <archive> --config ./keyorix.yaml`;
   it ends with `verify-audit on the restored database: VALID`. Back up
   `secrets/master_password` **separately** (a password manager or a sealed
   envelope): without it every stored secret is lost, and there is no recovery.
