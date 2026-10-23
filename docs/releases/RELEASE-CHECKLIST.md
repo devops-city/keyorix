@@ -14,7 +14,8 @@ example `v0.96.1`) throughout.
       after the draft was written is not in it).
 - [ ] `main` is green: `gh run list --branch main --limit 5`.
 - [ ] Mutation check on the security packages (about 4 minutes on a laptop; the
-      weekly box only covers `internal/core` and `internal/storage/store`):
+      weekly mutation run is stopped as of 2026-10-23 and would only cover
+      `internal/core` and `internal/storage/store`):
       `GOMAXPROCS=2 gremlins unleash --workers 2 ./internal/crypto` and the same for
       `./internal/keyfiles`. Test efficacy must not be lower than the last recorded
       value (2026-10-23: crypto 88.2%, keyfiles 100%; the crypto survivors are #3612).
