@@ -76,12 +76,32 @@ either, so each command below names the files it needs itself.
 
 Releases from v0.96.0 on have `admin generate-secrets` and `mfa enroll` (v0.95.3 and
 older do not). This procedure builds from source so it always matches this document;
-to use a release binary instead, take v0.96.0 or newer (see QUICK_START.md):
+to use a release binary instead, skip to the release variant below (v0.96.0 or newer):
 
 ```bash
 git clone https://github.com/keyorixhq/keyorix.git ~/keyorix-src
 make -C ~/keyorix-src build
 ```
+
+**Release variant (no Go, `git` or `make` needed).** Download both binaries (the
+server and the CLI are separate assets), verify them, and put them in
+`~/keyorix-src/bin/` so step 2 works unchanged. Pick `linux_arm64` or
+`darwin_arm64`/`darwin_amd64` for other machines. The release binaries already
+include the web UI, served at `https://localhost:8080/` once the server runs:
+
+```bash
+V=v0.96.3   # any release from v0.96.0 on
+mkdir -p ~/keyorix-src/bin && cd ~/keyorix-src/bin
+curl -fsSLO https://github.com/keyorixhq/keyorix/releases/download/$V/keyorix-server_linux_amd64
+curl -fsSLO https://github.com/keyorixhq/keyorix/releases/download/$V/keyorix_linux_amd64
+curl -fsSLO https://github.com/keyorixhq/keyorix/releases/download/$V/checksums.txt
+sha256sum -c --ignore-missing checksums.txt   # both lines must say OK
+mv keyorix-server_linux_amd64 keyorix-server && mv keyorix_linux_amd64 keyorix && chmod +x keyorix keyorix-server
+```
+
+(`checksums.txt` is also signed: `checksums.txt.sig` and `.pem`, verify with `cosign`.
+On macOS use `shasum -a 256 -c --ignore-missing checksums.txt`.) Note that the checksum
+lines name the original file names, so run the check before the `mv`.
 
 ### 2. Create the install directory
 
@@ -117,7 +137,9 @@ Creates `secrets/master_password`, `secrets/bootstrap_token` and
 
 This writes the secure-baseline config (TLS required, rate limiting, MFA required,
 `/metrics` behind a token), a self-signed certificate `certs/server.crt` with its
-key, and `secrets/metrics_token`, all 0600, nothing printed. Only if you chose another
+key, and `secrets/metrics_token`, all 0600. It prints only file paths and the next
+commands, never a secret value (and creates an empty `keyorix.db`, `keyorix.log` and
+lock files in the install directory). Only if you chose another
 port in step 2, change it now, e.g.
 `sed -i.bak 's/port: "8080"/port: "18080"/' keyorix.yaml`
 (`keyorix.yaml` holds no secrets; it only names files).
@@ -135,7 +157,9 @@ KEYORIX_MASTER_PASSWORD_FILE=secrets/master_password ./bin/keyorix-server admin 
 KEYORIX_MASTER_PASSWORD_FILE=secrets/master_password ./bin/keyorix-server admin recovery-key rotate --config ./keyorix.yaml --recipient RECIPIENT --output ./recovery-key.age
 ```
 
-Replace `RECIPIENT` with the `age1...` key or the `.pub` path. The key is written
+Replace `RECIPIENT` with the `age1...` key or the `.pub` path (no key yet?
+`ssh-keygen -t ed25519 -f ~/.ssh/keyorix_recovery` makes one; keep the private half
+away from this host, or skip this step and use the user's step 12 instead). The key is written
 age-encrypted to `recovery-key.age` (0600) and never shown. Without `--recipient`
 this command prints the key in plain text: **never run it that way yourself**; that
 is the user's step 12.
@@ -243,7 +267,13 @@ curl -fs --retry 30 --retry-connrefused --retry-delay 1 --cacert certs/server.cr
 
 Show the step 13 output, then tell the user:
 
-- **Back up together, offline:** `keys/`, `keyorix.db` and `keyorix.yaml`. Back up
+- **Back up together, offline:** `keys/`, `keyorix.db` and `keyorix.yaml`, or in one
+  archive: stop the server, run
+  `KEYORIX_MASTER_PASSWORD_FILE=secrets/master_password ./bin/keyorix-server admin backup --output ./keyorix-backup.tar.gz --config ./keyorix.yaml`,
+  start the server again and store the archive off this host. To restore on a new
+  host, create an empty install directory with `bin/`, `keyorix.yaml`, `certs/` and
+  `secrets/master_password` (the same passphrase) and run `admin restore --input <archive> --config ./keyorix.yaml`;
+  it ends with `verify-audit on the restored database: VALID`. Back up
   `secrets/master_password` **separately** (a password manager or a sealed
   envelope): without it every stored secret is lost, and there is no recovery.
   Keep `recovery-key.age` (or the key from step 12) away from this host too.
