@@ -236,15 +236,21 @@ func runUserCreate(cmd *cobra.Command, _ []string) error {
 }
 
 // resolveInitialPassword returns the new user's initial password without ever requiring it
-// on argv: the (insecure, warned) --password flag if set, else KEYORIX_INITIAL_PASSWORD,
-// else an interactive no-echo prompt. Mirrors the old CLI's identical helper
+// on argv: the (insecure, warned) --password flag if set, else KEYORIX_INITIAL_PASSWORD
+// or KEYORIX_INITIAL_PASSWORD_FILE, else an interactive no-echo prompt. Mirrors the old CLI's identical helper
 // (internal/cli/user/create.go).
 func resolveInitialPassword(_ *cobra.Command) (string, error) {
 	if userCreatePassword != "" {
 		fmt.Fprintln(os.Stderr, "⚠️  Passing --password on the command line is insecure (visible via ps/proc and saved in shell history); prefer the KEYORIX_INITIAL_PASSWORD environment variable, or omit it to be prompted.")
 		return userCreatePassword, nil
 	}
-	if pw := os.Getenv("KEYORIX_INITIAL_PASSWORD"); pw != "" {
+	// KEYORIX_INITIAL_PASSWORD_FILE too, as the refusal of --password promises
+	// (secretflags.go); both set, or an unusable file, is an error, never a prompt.
+	pw, found, err := lookupSecretEnv("KEYORIX_INITIAL_PASSWORD")
+	if err != nil {
+		return "", err
+	}
+	if found {
 		return pw, nil
 	}
 	fmt.Fprint(os.Stderr, "Initial password: ")

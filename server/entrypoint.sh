@@ -123,12 +123,25 @@ echo "Starting Keyorix server..."
 #   - the file must not be accessible to "other", writable by its group, or carry
 #     setuid/setgid/sticky; group-read (0440/0640) is accepted only for a file the
 #     running user does not own whose group the process holds (fsGroup/group_add);
-#   - neither the value nor the file contents are ever printed.
+#   - the file must be owned by the running user or root (#3393: any other owner can
+#     rewrite it, e.g. to choose the first admin's password), whatever its mode;
+#   - internal/secretenv/testdata/permission-matrix.tsv is the rule as a table,
+#     and server/entrypoint_permission_matrix_test.go holds this copy to it;
+#   - neither the value nor the file contents are ever printed, and the path only
+#     through _rs_describe: a relative NAME_FILE is not shown, it may be the secret
+#     itself (internal/secretenv.DescribeFile, SECRETENV-REVIEW-1 F4). No message
+#     names $_rs_path directly; stat/head stderr is discarded for the same reason.
 # The value goes into the shell variable OUT, which is unset first so it is never
 # exported, even when a variable of that name came in with the environment. NAME and
 # NAME_FILE are never modified: the server inherits exactly what the operator set
 # (the file path, never the resolved value), and a compose file's empty
 # NAME=${NAME:-} passthrough stays empty, so the server's own both-set check holds.
+_rs_describe() {
+    case "$2" in
+        /*) printf '%s_FILE=%s' "$1" "$2" ;;
+        *) printf '%s_FILE (a relative path, not shown: it may be the secret itself)' "$1" ;;
+    esac
+}
 resolve_secret() {
     _rs_name="$1"
     _rs_out="$2"
@@ -143,16 +156,22 @@ resolve_secret() {
         echo "ERROR: both $_rs_name and ${_rs_name}_FILE are set; set exactly one" >&2
         return 1
     fi
+    _rs_label=$(_rs_describe "$_rs_name" "$_rs_path")
     if [ ! -f "$_rs_path" ] || [ ! -r "$_rs_path" ]; then
-        echo "ERROR: ${_rs_name}_FILE=$_rs_path is not a readable regular file" >&2
+        echo "ERROR: $_rs_label is not a readable regular file" >&2
         return 1
     fi
-    _rs_mode=$(stat -L -c '%a' "$_rs_path") || return 1
-    _rs_uid=$(stat -L -c '%u' "$_rs_path") || return 1
-    _rs_gid=$(stat -L -c '%g' "$_rs_path") || return 1
+    _rs_mode=$(stat -L -c '%a' "$_rs_path" 2>/dev/null) || { echo "ERROR: $_rs_label cannot be inspected" >&2; return 1; }
+    _rs_uid=$(stat -L -c '%u' "$_rs_path" 2>/dev/null) || { echo "ERROR: $_rs_label cannot be inspected" >&2; return 1; }
+    _rs_gid=$(stat -L -c '%g' "$_rs_path" 2>/dev/null) || { echo "ERROR: $_rs_label cannot be inspected" >&2; return 1; }
     _rs_other=${_rs_mode#"${_rs_mode%?}"}
     _rs_rest=${_rs_mode%?}
     _rs_group=${_rs_rest#"${_rs_rest%?}"}
+    _rs_euid=$(id -u) || return 1
+    if [ "$_rs_uid" != "$_rs_euid" ] && [ "$_rs_uid" != 0 ]; then
+        echo "ERROR: $_rs_label is owned by uid $_rs_uid, which is neither the running user (uid $_rs_euid) nor root -- refusing to trust it (that account can replace the file); chown it to root, keeping the group the process reads it through, or to uid $_rs_euid" >&2
+        return 1
+    fi
     _rs_ok=1
     [ "${#_rs_mode}" -le 3 ] || _rs_ok=0                      # setuid/setgid/sticky
     [ "$_rs_other" = 0 ] || _rs_ok=0                          # any access for other
@@ -160,14 +179,14 @@ resolve_secret() {
     if [ "$_rs_ok" = 1 ] && [ $(( _rs_group & 5 )) -ne 0 ]; then
         # group-readable: only an orchestrator-owned file in a group we hold
         _rs_ok=0
-        if [ "$_rs_uid" != "$(id -u)" ]; then
+        if [ "$_rs_uid" != "$_rs_euid" ]; then
             for _rs_g in $(id -G); do
                 [ "$_rs_g" = "$_rs_gid" ] && _rs_ok=1
             done
         fi
     fi
     if [ "$_rs_ok" != 1 ]; then
-        echo "ERROR: ${_rs_name}_FILE=$_rs_path has mode $_rs_mode -- refusing to trust it (chmod 0600/0400, or mount it owned by another user, e.g. root, with a group the process belongs to and mode 0440)" >&2
+        echo "ERROR: $_rs_label has mode $_rs_mode -- refusing to trust it (chmod 0600/0400, or mount it owned by root with a group the process belongs to and mode 0440)" >&2
         return 1
     fi
     _rs_nl='
@@ -176,20 +195,20 @@ resolve_secret() {
     # head -c caps the read at 1 MiB + 1; the trailing x protects the final newline
     # from command substitution. && (not ;) so a failed read fails here instead of
     # yielding printf's status.
-    _rs_val=$(head -c 1048577 "$_rs_path" && printf x) || return 1
+    _rs_val=$(head -c 1048577 "$_rs_path" 2>/dev/null && printf x) || { echo "ERROR: $_rs_label cannot be read" >&2; return 1; }
     _rs_val=${_rs_val%x}
     if [ "${#_rs_val}" -gt 1048576 ]; then
-        echo "ERROR: ${_rs_name}_FILE=$_rs_path is too large" >&2
+        echo "ERROR: $_rs_label is too large" >&2
         return 1
     fi
     case "$_rs_val" in *"$_rs_nl") _rs_val=${_rs_val%"$_rs_nl"} ;; esac
     case "$_rs_val" in *"$_rs_cr") _rs_val=${_rs_val%"$_rs_cr"} ;; esac
     if [ -z "$_rs_val" ]; then
-        echo "ERROR: ${_rs_name}_FILE=$_rs_path is empty" >&2
+        echo "ERROR: $_rs_label is empty" >&2
         return 1
     fi
     eval "$_rs_out=\$_rs_val"
-    unset _rs_val _rs_direct
+    unset _rs_val _rs_direct _rs_label
 }
 # --- END resolve_secret ---
 

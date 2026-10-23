@@ -13,6 +13,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -73,16 +74,20 @@ func main() {
 // env var; that fallback is not going away, so upgrading this agent's image alone
 // never breaks a deployment that hasn't switched to KEYORIX_TOKEN_FILE yet.
 func resolveToken() (string, error) {
-	if path := strings.TrimSpace(os.Getenv("KEYORIX_TOKEN_FILE")); path != "" {
+	// A whitespace-only KEYORIX_TOKEN_FILE counts as unset, as before.
+	if fvs := secretenv.FileVars("KEYORIX_TOKEN"); len(fvs) > 0 && strings.TrimSpace(fvs[0].Path) != "" {
+		fv, path := fvs[0], strings.TrimSpace(fvs[0].Path)
 		// secretenv.ReadFile: regular file only (a FIFO or device is refused without
-		// blocking), size-capped, and the contents never appear in an error.
+		// blocking), size-capped, and the contents never appear in an error. The path
+		// is named through secretenv.DescribeFile: a relative one is not shown, it
+		// may be the token itself.
 		raw, err := secretenv.ReadFile(path)
 		if err != nil {
-			return "", fmt.Errorf("read KEYORIX_TOKEN_FILE %s: %w", path, err)
+			return "", fmt.Errorf("read %w", secretenv.NewFileError(fv.Var(), path, err))
 		}
 		token := strings.TrimSpace(raw)
 		if token == "" {
-			return "", fmt.Errorf("KEYORIX_TOKEN_FILE %s is empty", path)
+			return "", secretenv.NewFileError(fv.Var(), path, errors.New("is empty (whitespace only)"))
 		}
 		return token, nil
 	}

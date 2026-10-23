@@ -81,7 +81,12 @@ Rules (all enforced at startup; the server refuses to start rather than guess):
 - **File missing, unreadable, empty, not a regular file, or larger than 1 MiB:**
   error. The server does not fall back to `X` or to a value in `keyorix.yaml`.
 - **Nothing is logged:** errors and warnings name the variable and the path, never
-  the value or the file contents.
+  the value or the file contents. A relative path (`KEYORIX_TOKEN_FILE=./token`)
+  works, but errors do not show it, because it may be the secret itself (someone
+  who set `X_FILE` to the value instead of `X`):
+  `KEYORIX_DB_PASSWORD_FILE (a relative path, not shown: it may be the secret itself): cannot open secret file: no such file or directory`.
+  An absolute path is shown. The server, the CLI, `keyorix-k8s-sync` and the
+  container entrypoint all behave this way.
 - **File permissions -- key material is refused, other secrets follow the
   file-permission policy.** The rule is the one the KEK file and
   `--passphrase-file` already follow: `0600` or `0400`. One exception exists for

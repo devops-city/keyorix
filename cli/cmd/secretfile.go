@@ -9,12 +9,16 @@
 //   - NAME and NAME_FILE both set -> error (no precedence).
 //   - unreadable / empty / not a regular file (a FIFO is refused, not waited on) /
 //     over 1 MiB -> error; never a fallback to NAME or a prompt.
-//   - the file's mode is judged on the opened descriptor: 0600/0400, or -- for a
-//     file an orchestrator mounted, i.e. not owned by the running user -- group-read
-//     (0440/0640) when the file's group is one the process holds (fsGroup,
-//     group_add). Anything for "other", group-write and setuid/setgid/sticky are
-//     always refused.
-//   - neither the value nor the contents ever appear in an error.
+//   - the file's mode and owner are judged on the opened descriptor: owned by the
+//     running user or root (#3393: any other owner can rewrite it), and 0600/0400,
+//     or -- for a root-owned file an orchestrator mounted -- group-read (0440/0640)
+//     when the file's group is one the process holds (fsGroup, group_add).
+//     Anything for "other", group-write and setuid/setgid/sticky are always refused.
+//   - internal/secretenv/testdata/permission-matrix.tsv is the rule as a table;
+//     TestLookupSecretEnv_PermissionMatrix holds this copy to it.
+//   - neither the value nor the contents ever appear in an error, and the path
+//     only through describeSecretFile: a relative NAME_FILE is not shown, it may
+//     be the secret itself (internal/secretenv.DescribeFile, SECRETENV-REVIEW-1 F4).
 package cmd
 
 import (
@@ -22,6 +26,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"syscall"
@@ -31,12 +36,20 @@ import (
 
 const maxSecretFileSize = 1 << 20
 
-// Test seams for the process identity the group rule compares against.
+// Test seams for the process identity the owner and group rules compare
+// against, and for the owner a file reports (a test cannot chown to root).
 var (
 	secretFileProcessUID    = os.Geteuid
 	secretFileProcessGroups = func() []int {
 		gs, _ := os.Getgroups()
 		return append(gs, os.Getegid())
+	}
+	secretFileOwner = func(info os.FileInfo) (uid, gid int, ok bool) {
+		st, ok := info.Sys().(*syscall.Stat_t)
+		if !ok {
+			return 0, 0, false
+		}
+		return int(st.Uid), int(st.Gid), true
 	}
 )
 
@@ -52,7 +65,7 @@ func lookupSecretEnv(name string) (value string, found bool, err error) {
 	case path != "":
 		v, err := readCheckedSecretFile(path)
 		if err != nil {
-			return "", false, fmt.Errorf("%s=%q: %w", fileVar, path, err)
+			return "", false, fmt.Errorf("%s: %w", describeSecretFile(fileVar, path), err)
 		}
 		return v, true, nil
 	case direct != "":
@@ -67,7 +80,9 @@ func readCheckedSecretFile(path string) (string, error) {
 	f, info, err := regularfile.Open("secret file", path)
 	if err != nil {
 		if errors.Is(err, regularfile.ErrNotRegular) {
-			return "", err
+			// regularfile's message carries the path; the caller names the file
+			// through describeSecretFile instead (a relative path is not shown).
+			return "", fmt.Errorf("secret file is %w", regularfile.ErrNotRegular)
 		}
 		return "", fmt.Errorf("cannot open secret file: %w", unwrapSecretPathError(err))
 	}
@@ -91,6 +106,21 @@ func readCheckedSecretFile(path string) (string, error) {
 	return v, nil
 }
 
+// relativeSecretPathNotShown and describeSecretFile copy
+// internal/secretenv.RelativePathNotShown and DescribeFile for NAME_FILE labels;
+// TestDescribeSecretFile_MatchesSecretenv holds the text to the server's.
+const relativeSecretPathNotShown = "a relative path, not shown: it may be the secret itself"
+
+// describeSecretFile names the file fileVar points at for an error: NAME_FILE="/abs"
+// or, for a relative path, NAME_FILE (a relative path, not shown: ...). It is the
+// only way lookupSecretEnv's errors name the path.
+func describeSecretFile(fileVar, path string) string {
+	if !filepath.IsAbs(path) {
+		return fileVar + " (" + relativeSecretPathNotShown + ")"
+	}
+	return fmt.Sprintf("%s=%q", fileVar, path)
+}
+
 func unwrapSecretPathError(err error) error {
 	if pe, ok := err.(*os.PathError); ok {
 		return pe.Err
@@ -102,7 +132,7 @@ func checkSecretFileMode(info os.FileInfo) error {
 	mode := info.Mode()
 	perm := mode.Perm()
 	bad := func(why string) error {
-		return fmt.Errorf("secret file mode %04o is too open (%s) -- refusing to trust it; chmod 0600/0400, or mount it owned by another user (e.g. root) with a group the process belongs to and mode 0440", perm, why)
+		return fmt.Errorf("secret file mode %04o is too open (%s) -- refusing to trust it; chmod 0600/0400, or mount it owned by root with a group the process belongs to and mode 0440", perm, why)
 	}
 	switch {
 	case mode&(os.ModeSetuid|os.ModeSetgid|os.ModeSticky) != 0:
@@ -111,17 +141,25 @@ func checkSecretFileMode(info os.FileInfo) error {
 		return bad("accessible to other users")
 	case perm&0o020 != 0:
 		return bad("writable by its group")
-	case perm&0o050 == 0:
+	}
+	// Owner (#3393, internal/secretenv.CheckOwner): whoever owns the file can chmod
+	// and rewrite it, so it must be the running user or root, whatever the mode.
+	uid, gid, ok := secretFileOwner(info)
+	if !ok {
+		return errors.New("secret file owner cannot be determined -- refusing to trust it")
+	}
+	euid := secretFileProcessUID()
+	if uid != euid && uid != 0 {
+		return fmt.Errorf("secret file is owned by uid %d, which is neither the running user (uid %d) nor root -- refusing to trust it (that account can replace the file); chown it to root, keeping the group the process reads it through, or to uid %d", uid, euid, euid)
+	}
+	if perm&0o050 == 0 {
 		return nil
 	}
-	st, ok := info.Sys().(*syscall.Stat_t)
-	if !ok {
-		return bad("group-readable and its owner cannot be determined")
-	}
-	if int(st.Uid) == secretFileProcessUID() {
+	// Group-readable: only a root-owned (orchestrator) file with a group we hold.
+	if uid == euid {
 		return bad("group-readable but owned by the running user")
 	}
-	if slices.Contains(secretFileProcessGroups(), int(st.Gid)) {
+	if slices.Contains(secretFileProcessGroups(), gid) {
 		return nil
 	}
 	return bad("group-readable by a group the process does not belong to")

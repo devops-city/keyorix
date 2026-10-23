@@ -113,8 +113,8 @@ func (src PassphraseSource) Describe(envVarName string) string {
 	case src.Stdin:
 		return "--passphrase-stdin"
 	}
-	if p := os.Getenv(envVarName + secretenv.FileSuffix); p != "" {
-		return fmt.Sprintf("%s%s=%q", envVarName, secretenv.FileSuffix, p)
+	if fvs := secretenv.FileVars(envVarName); len(fvs) > 0 {
+		return secretenv.DescribeFile(fvs[0].Var(), fvs[0].Path) // a relative path is not shown (F4)
 	}
 	return envVarName
 }

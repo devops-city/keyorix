@@ -13,7 +13,8 @@
 //   - X_FILE set but unreadable / empty / not a regular file -> error. Never
 //     fall back to X or to a config-file value.
 //   - Neither the value nor the file contents appear in any error or log line;
-//     errors name the variable and the path only.
+//     errors name the variable and the path only, through DescribeFile, which
+//     never shows a relative path (it may be the secret itself, F4).
 //   - Permissions: Lookup leaves the policy to the caller (CheckPermissions plus
 //     the warn-or-refuse matrix); LookupChecked -- used for key material -- judges
 //     the mode and owner on the opened descriptor and always refuses a file that
@@ -73,7 +74,7 @@ func lookup(name string, checkPerms bool) (value string, found bool, err error) 
 	case path != "":
 		v, err := readSecretFile(path, checkPerms)
 		if err != nil {
-			return "", false, fmt.Errorf("%s=%q: %w", fileVar, path, err)
+			return "", false, NewFileError(fileVar, path, err)
 		}
 		return v, true, nil
 	case direct != "":
@@ -87,9 +88,29 @@ func lookup(name string, checkPerms bool) (value string, found bool, err error) 
 // check over the secret files.
 func FilePaths(names ...string) []string {
 	var out []string
+	for _, fv := range FileVars(names...) {
+		out = append(out, fv.Path)
+	}
+	return out
+}
+
+// FileVar is a set <Name>_FILE variable and the path it holds. Path is the raw
+// operator value: name it in a message only through DescribeFile(fv.Var(), fv.Path)
+// (or CheckPermissionsNamed), never with %s/%q.
+type FileVar struct {
+	Name, Path string
+}
+
+// Var is the variable's full name, <Name>_FILE.
+func (fv FileVar) Var() string { return fv.Name + FileSuffix }
+
+// FileVars returns the <name>_FILE variables that are set (non-empty), in
+// argument order.
+func FileVars(names ...string) []FileVar {
+	var out []FileVar
 	for _, n := range names {
 		if p := os.Getenv(n + FileSuffix); p != "" {
-			out = append(out, p)
+			out = append(out, FileVar{Name: n, Path: p})
 		}
 	}
 	return out
@@ -273,15 +294,21 @@ var (
 // The path is stat'd through symlinks (the Kubernetes layout), so the target's
 // mode is what is judged.
 func CheckPermissions(path string) error {
+	return CheckPermissionsNamed("secret file", path)
+}
+
+// CheckPermissionsNamed is CheckPermissions with the file named by label (the
+// X_FILE variable or config key it came from) in the error, via DescribeFile.
+func CheckPermissionsNamed(label, path string) error {
 	info, err := os.Stat(path)
 	if err != nil {
-		return fmt.Errorf("secret file %q: %w", path, unwrapPathError(err))
+		return NewFileError(label, path, unwrapPathError(err))
 	}
 	if !info.Mode().IsRegular() {
-		return fmt.Errorf("secret file %q is not a regular file", path)
+		return NewFileError(label, path, ErrNotRegular)
 	}
 	if err := checkInfo(info); err != nil {
-		return fmt.Errorf("secret file %q: %w", path, err)
+		return NewFileError(label, path, err)
 	}
 	return nil
 }
