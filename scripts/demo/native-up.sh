@@ -8,6 +8,14 @@
 #   KEYORIX_DEMO_PG_DSN=<dsn> scripts/demo/native-up.sh   # PostgreSQL (the DSN is read
 #                                              # from the environment, never argv)
 #
+# Flags:
+#   --with-helpers   (default) also build, when missing, the helpers the scenarios need:
+#                    bin/demo-dbexec, bin/keyorix-mcp, bin/demo-oidcissuer, bin/demo-fakevault,
+#                    bin/keyorix-migrate. A helper that fails to build is reported and the
+#                    demo carries on; only its scenario refuses to run.
+#   --no-helpers     build only the server, CLI and TOTP helper.
+#   --build-only     build the binaries, start nothing (exit 1 if a helper failed to build).
+#
 # Everything lives in .demo-native/ (gitignored): config, keys, SQLite file, server.log,
 # cli-home, state.env (0600: demo logins + TOTP keys, read by scenario scripts). Idempotent:
 # re-running with the demo already up and seeded just reprints it; with the server stopped
@@ -26,6 +34,17 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$REPO_ROOT"
+
+WITH_HELPERS=true BUILD_ONLY=false
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --with-helpers) WITH_HELPERS=true; shift ;;
+    --no-helpers) WITH_HELPERS=false; shift ;;
+    --build-only) BUILD_ONLY=true; shift ;;
+    -h|--help) grep '^#' "$0" | sed 's/^# \?//'; exit 0 ;;
+    *) echo "unknown argument: $1 (see --help)" >&2; exit 1 ;;
+  esac
+done
 
 PORT="${KEYORIX_DEMO_PORT:-18490}"
 WORK="${KEYORIX_DEMO_DIR:-$REPO_ROOT/.demo-native}"
@@ -74,9 +93,44 @@ start_server() {
   return 1
 }
 
+# Scenario helpers (scripts/demo/scenario-*.sh, scn-lib.sh): each one is built only when
+# missing, from this checkout (delete bin/<name> to force a rebuild after a git pull).
+#   bin/demo-dbexec        tamper / dynamic-credentials scenarios (PostgreSQL side)
+#   bin/keyorix-mcp        scenario-mcp-readonly.sh
+#   bin/demo-oidcissuer    scenario-oidc-federation.sh (stand-in CI issuer)
+#   bin/demo-fakevault     scenario-vault-import.sh (stand-in Vault KV v2)
+#   bin/keyorix-migrate    scenario-vault-import.sh (separate module: migrate/)
+# Skip with --no-helpers; each scenario then prints its own "build first" line if one is missing.
+build_helper() { # build_helper OUT_NAME WHAT PACKAGE [MODULE_DIR]
+  local out="$BIN/$1" what="$2" pkg="$3" moddir="${4:-}"
+  [ ! -x "$out" ] || return 0
+  step "Building $what (bin/$1)"
+  if [ -n "$moddir" ]; then
+    ( cd "$moddir" && GOWORK=off go build -o "$out" "$pkg" ) || { echo "building bin/$1 failed (cd $moddir && GOWORK=off go build -o $out $pkg); the scenarios that need it will refuse to run, the rest of the demo is unaffected" >&2; return 1; }
+  else
+    go build -o "$out" "$pkg" || { echo "building bin/$1 failed (go build -o $out $pkg); the scenarios that need it will refuse to run, the rest of the demo is unaffected" >&2; return 1; }
+  fi
+}
+build_helpers() {
+  if [ "$WITH_HELPERS" != true ]; then
+    info "Scenario helpers not built (--no-helpers)"
+    return 0
+  fi
+  local rc=0
+  build_helper demo-dbexec "the demo DB helper (tamper / dynamic-credentials scenarios)" ./scripts/demo/dbexec || rc=1
+  build_helper keyorix-mcp "the MCP server (scenario: read-only agent)" ./cmd/keyorix-mcp || rc=1
+  build_helper demo-oidcissuer "the stand-in CI OIDC issuer (scenario: federation)" ./scripts/demo/oidcissuer || rc=1
+  build_helper demo-fakevault "the stand-in Vault (scenario: vault import)" ./scripts/demo/fakevault || rc=1
+  build_helper keyorix-migrate "the migration tool (scenario: vault import)" . "$REPO_ROOT/migrate" || rc=1
+  [ "$rc" -eq 0 ] || return 1
+  return 0
+}
+
 # ── Idempotent re-run ──────────────────────────────────────────────────────
 if [ -f "$STATE_ENV" ] && healthy; then
   info "Demo already running and seeded — reprinting"
+  mkdir -p "$BIN"
+  build_helpers || true   # already reported on stderr; the running demo is unaffected
   # shellcheck disable=SC1090
   . "$STATE_ENV"; echo "URL: $DEMO_URL   (admin / $DEMO_ADMIN_PASSWORD; TOTP setup key in $WORK/admin-mfa)"
   exit 0
@@ -95,10 +149,6 @@ if [ ! -x "$SERVER_BIN" ]; then
   step "Building the server"
   go build -o "$SERVER_BIN" ./server
 fi
-if [ ! -x "$BIN/demo-dbexec" ]; then
-  step "Building the demo DB helper (scenario scripts: tamper / dynamic credentials)"
-  go build -o "$BIN/demo-dbexec" ./scripts/demo/dbexec
-fi
 if [ ! -x "$CLI_BIN" ]; then
   step "Building the CLI"
   ( cd cli && GOWORK=off go build -o "$CLI_BIN" . )
@@ -107,6 +157,14 @@ if [ ! -x "$TOTPGEN_BIN" ]; then
   step "Building the TOTP helper (stands in for an authenticator app)"
   GOWORK=off go build -o "$TOTPGEN_BIN" ./scripts/totpgen/main.go
 fi
+HELPERS_OK=true
+build_helpers || HELPERS_OK=false   # already reported on stderr; the demo itself does not need them
+if [ "$BUILD_ONLY" = true ]; then
+  [ "$HELPERS_OK" = true ] || exit 1
+  ok "binaries are in $BIN (--build-only: nothing started)"
+  exit 0
+fi
+[ "$HELPERS_OK" = true ] || info "continuing without the helpers that failed to build; the demo itself is unaffected"
 
 # ── Resume: data present, server stopped ───────────────────────────────────
 if [ -f "$STATE_ENV" ]; then

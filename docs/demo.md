@@ -29,7 +29,9 @@ scripts/demo/native-up.sh
 To serve the dashboard from the same process build it in first (`make build-ui`, needs `pnpm`);
 without it the server answers API-only and says so in its log.
 
-What the script does: builds the server, CLI and helpers into `bin/`, creates `.demo-native/`
+What the script does: builds the server, CLI, TOTP helper and the scenario helpers
+(`demo-dbexec`, `keyorix-mcp`, `demo-oidcissuer`, `demo-fakevault`, `keyorix-migrate`; each only
+when missing; `--no-helpers` skips them, `--build-only` builds and stops) into `bin/`, creates `.demo-native/`
 (gitignored: config, keys, SQLite file, server log, `state.env` with the demo logins at mode
 0600), starts the server, enrols MFA for the three seeded accounts, seeds, then waits for the
 first anomaly-detection pass and acknowledges the low-severity "first observed access" alerts the
