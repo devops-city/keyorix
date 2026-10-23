@@ -4,7 +4,9 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -65,6 +67,9 @@ func probe(url string) (*http.Response, error) {
 
 func measureStartup(p startupParams) (startupResult, error) {
 	var res startupResult
+	if err := requireLoopbackURL(p.URL); err != nil {
+		return res, err
+	}
 	for i := 0; i < p.Runs; i++ {
 		last := i == p.Runs-1
 		ms, rss, err := oneStart(p, last)
@@ -180,4 +185,25 @@ func tailFile(path string, n int) string {
 		lines = lines[len(lines)-n:]
 	}
 	return strings.Join(lines, "\n")
+}
+
+// requireLoopbackURL refuses a probe URL whose host is not loopback. The probe
+// client skips certificate verification (the server under test is a throwaway
+// with a self-signed certificate), which is only acceptable on this machine.
+func requireLoopbackURL(raw string) error {
+	if !strings.Contains(raw, "://") {
+		raw = "http://" + raw
+	}
+	u, err := neturl.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("invalid -url: %w", err)
+	}
+	host := u.Hostname()
+	if host == "localhost" {
+		return nil
+	}
+	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+		return nil
+	}
+	return fmt.Errorf("-url host %q is not loopback: the probe does not verify certificates, so it only runs against this machine", host)
 }

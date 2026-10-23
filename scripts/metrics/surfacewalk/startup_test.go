@@ -105,3 +105,23 @@ func TestPeakRSSKB_NilStateIsAnError(t *testing.T) {
 		t.Fatal("a missing process state must be an error, not zero")
 	}
 }
+
+func TestRequireLoopbackURL(t *testing.T) {
+	for _, ok := range []string{"127.0.0.1:8080/health", "localhost:8080/health", "https://127.0.0.1:8443/health", "[::1]:8080/health"} {
+		if err := requireLoopbackURL(ok); err != nil {
+			t.Errorf("requireLoopbackURL(%q) = %v, want nil", ok, err)
+		}
+	}
+	for _, bad := range []string{"example.com/health", "10.0.0.5:8080/health", "https://203.0.113.9/health", "localhost.evil.example/health"} {
+		if err := requireLoopbackURL(bad); err == nil {
+			t.Errorf("requireLoopbackURL(%q) = nil, want an error", bad)
+		}
+	}
+}
+
+func TestMeasureStartup_RefusesNonLoopback(t *testing.T) {
+	_, err := measureStartup(startupParams{Bin: "unused", URL: "example.com/health", Runs: 1})
+	if err == nil || !strings.Contains(err.Error(), "not loopback") {
+		t.Fatalf("err = %v, want a not-loopback refusal", err)
+	}
+}
