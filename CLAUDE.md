@@ -511,3 +511,26 @@ truncation, and never fails on it.
 
 A real finding is fixed in code. This procedure is only for a finding the
 verification proves absent.
+
+## Testing and approval rules (from the 2026-10-23 usage review)
+
+- **Never stream full `go test ./...` output.** Redirect to `.scratch/` and grep for
+  `^(--- FAIL|FAIL|panic)`; output past 10 MiB is truncated.
+- **Postgres runs of `internal/core` need `-timeout 20m`.**
+- **Machine-wide `GOFLAGS` may contain `-trimpath`, which breaks source-locating
+  tests.** Run those with `GOFLAGS= go test ...`.
+- **New test doubles must not embed the whole storage interface** (a repo guard forbids
+  it). Embed or implement only the methods the test needs.
+- **A security fix needs red/green proof**: the test fails without the fix and passes
+  with it. If the red proof needs a throwaway edit to a production file, ask the
+  coordinator first.
+- **A known timing-flaky storage test that fails**: re-run it on `main` to confirm it is
+  unrelated before investigating.
+- **Approvals need test evidence at the reviewed SHA.** Reading code alone is not enough
+  for auth, SSO, role-scope, secretenv or storage changes; run the touched packages'
+  tests at the PR head and record pass/fail with the SHA. Re-check the head SHA before
+  approving; if it moved, review only the new commits.
+- **Security-sensitive reviews (auth, SSO, roles, secretenv, storage) go to Opus
+  sub-agents only**, never Sonnet.
+- **Review and diagnose against `git fetch origin` + `origin/main`**, never a possibly
+  stale local checkout.
