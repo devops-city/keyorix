@@ -1,0 +1,2 @@
+### Added
+- **Independent break-glass review in the web UI.** The admin Break-glass tab now has a Review action (note of at least 10 characters) on an ended, unreviewed activation for a user with roles.assign who is not the requester, and a Reviewed badge afterwards; it is hidden otherwise. It uses the existing `POST /projects/{id}/break-glass/{activationId}/review`; the server rules (no self-review, not while active, once only) are unchanged (DEMO-WALK-4 finding 2).

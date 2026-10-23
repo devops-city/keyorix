@@ -117,6 +117,13 @@ export const breakGlassApi = {
     async revoke(projectId: number, activationId: number): Promise<void> {
         await apiClient.post(`/api/v1/projects/${projectId}/break-glass/${activationId}/revoke`);
     },
+
+    // The independent after-the-fact review (ADR-112). The server refuses the activator, a
+    // still-active activation, a second review and a note outside 10..2000 characters; this layer
+    // sends the note as typed and lets those refusals come back as errors.
+    async review(projectId: number, activationId: number, note: string): Promise<void> {
+        await apiClient.post(`/api/v1/projects/${projectId}/break-glass/${activationId}/review`, { note });
+    },
 };
 
 export type BreakGlassRefusal =
