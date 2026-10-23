@@ -5,7 +5,8 @@
 # findings F2/F3). The release checklist says README and QUICK_START at the tag must match
 # main for install commands; this script checks the version half of that: every place the
 # install docs and compose files PIN a version (an image tag, a release download URL, a
-# V=/VERSION= shell variable, a helm --version, a values `tag:`) must equal TAG.
+# V=/VERSION= shell variable, a helm --version, a `git clone --branch vX.Y.Z`, a values
+# `tag:`) must equal TAG.
 #
 # What it checks (the list of recognised pin shapes is PIN_RE below; a version that only
 # appears in prose such as "does not exist in v0.95.3" is not a pin and is not checked):
@@ -32,6 +33,7 @@ PIN_RE="ghcr\\.io/keyorixhq/[A-Za-z0-9._/-]+:v?${VER_RE}"
 PIN_RE="$PIN_RE|releases/download/v?${VER_RE}"
 PIN_RE="$PIN_RE|(^|[^A-Za-z0-9_])(KEYORIX_VERSION|VERSION|V)=[\"']?v?${VER_RE}"
 PIN_RE="$PIN_RE|--version[ =]v?${VER_RE}"
+PIN_RE="$PIN_RE|(--branch|--depth 1 -b|-b)[ =]v?${VER_RE}"
 PIN_RE="$PIN_RE|(^|[^A-Za-z0-9_])tag:[ ]*[\"']?v?${VER_RE}"
 
 usage() {
@@ -139,7 +141,7 @@ BASE=https://github.com/keyorixhq/keyorix/releases/download/\$V
 This does not exist in v0.1.0 and was added in v0.2.0 (prose, not a pin).
 helm install k oci://ghcr.io/keyorixhq/charts/keyorix --version $2
 EOF
-  printf 'curl -L https://raw.githubusercontent.com/keyorixhq/keyorix/main/install.sh | sh\n' >"$1/README.md"
+  printf 'curl -L https://raw.githubusercontent.com/keyorixhq/keyorix/main/install.sh | sh\ngit clone --branch v%s https://github.com/keyorixhq/keyorix.git && cd keyorix\n' "$2" >"$1/README.md"
   printf 'take v0.1.0 or newer\nimage: ghcr.io/keyorixhq/keyorix-web:%s\n' "$2" >"$1/INSTALL-WITH-AI.md"
   printf 'compose pins both images (e.g. :9.9.9, no v)\nghcr.io/keyorixhq/keyorix-web:%s\n' "$2" >"$1/docs/SELF_HOSTING.md"
   printf 'image: ghcr.io/keyorixhq/keyorix-operator:%s\n' "$2" >"$1/deploy/x/docker-compose.yml"
@@ -155,13 +157,13 @@ self_test() {
   st_tree "$t" 1.2.3
 
   bash "$SELF" --root "$t" --exceptions "$w/none" v1.2.3 >"$out" 2>&1; rc=$?
-  st_expect "consistent tree passes (v prefix, -airgap, prose, testdata ignored)" 0 $rc "$out" 'checked 8 version pin'
+  st_expect "consistent tree passes (v prefix, -airgap, prose, testdata ignored)" 0 $rc "$out" 'checked 9 version pin'
   bash "$SELF" --root "$t" --exceptions "$w/none" 1.2.3 >"$out" 2>&1; rc=$?
   st_expect "TAG without v accepted" 0 $rc
 
   # each pin shape, mutated alone, must be caught and must name its file
   local f
-  for f in docker-compose.yml QUICK_START.md INSTALL-WITH-AI.md docs/SELF_HOSTING.md deploy/x/docker-compose.yml; do
+  for f in docker-compose.yml README.md QUICK_START.md INSTALL-WITH-AI.md docs/SELF_HOSTING.md deploy/x/docker-compose.yml; do
     rm -rf "$w/m" && cp -R "$t" "$w/m"
     sed 's/1\.2\.3/1.2.2/' "$w/m/$f" >"$w/m/edit" && mv "$w/m/edit" "$w/m/$f"
     bash "$SELF" --root "$w/m" --exceptions "$w/none" v1.2.3 >"$out" 2>&1; rc=$?
@@ -176,16 +178,16 @@ self_test() {
   st_expect "helm --version" 1 $rc "$out" 'QUICK_START.md:4 pins 1\.2\.0'
   printf 'curl https://github.com/keyorixhq/keyorix/releases/download/v1.2.0/keyorix\n' >>"$w/m/README.md"
   bash "$SELF" --root "$w/m" --exceptions "$w/none" v1.2.3 >"$out" 2>&1; rc=$?
-  st_expect "release download URL" 1 $rc "$out" 'README.md:2 pins 1\.2\.0'
+  st_expect "release download URL" 1 $rc "$out" 'README.md:3 pins 1\.2\.0'
 
   # exception: allowed only for the named file AND text, printed, and flagged when unused
   printf '# comment\nREADME.md\treleases/download/v1.2.0\tdocumented old-version download\nREADME.md\tno such text\tstale\n' >"$w/exc"
   bash "$SELF" --root "$w/m" --exceptions "$w/exc" v1.2.3 >"$out" 2>&1; rc=$?
-  st_expect "exception allows only the matching line (QUICK_START still fails)" 1 $rc "$out" 'NOTE  README.md:2 pins 1\.2\.0 .*allowed - documented old-version download'
+  st_expect "exception allows only the matching line (QUICK_START still fails)" 1 $rc "$out" 'NOTE  README.md:3 pins 1\.2\.0 .*allowed - documented old-version download'
   st_expect "unused exception reported" 1 $rc "$out" 'unused exception \(README.md: "no such text"\)'
   printf 'QUICK_START.md\tother text\twrong file text\n' >"$w/exc2"
   bash "$SELF" --root "$w/m" --exceptions "$w/exc2" v1.2.3 >"$out" 2>&1; rc=$?
-  st_expect "exception for different text does not suppress" 1 $rc "$out" 'README.md:2 pins 1\.2\.0, release is'
+  st_expect "exception for different text does not suppress" 1 $rc "$out" 'README.md:3 pins 1\.2\.0, release is'
   rm -rf "$w/m" && cp -R "$t" "$w/m"
   printf 'image: ghcr.io/keyorixhq/keyorix-web:1.1.0\n' >>"$w/m/README.md"
   printf 'README.md\tkeyorix-web:1.1.0\told image kept on purpose\n' >"$w/exc3"

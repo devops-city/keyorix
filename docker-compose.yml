@@ -83,7 +83,7 @@ services:
       retries: 10
 
   backend:
-    image: ghcr.io/keyorixhq/keyorix-server:0.96.0 # pin; bump to match release tag on upgrades
+    image: ghcr.io/keyorixhq/keyorix-server:0.96.3 # pin; bump to match release tag on upgrades
     # To build from source instead of pulling the published image, comment out
     # `image:` above and uncomment:
     # build:
@@ -169,7 +169,7 @@ services:
     # Published by docker-publish.yml from the same release tag as the server
     # image. Registry tags carry no leading "v" (docker/metadata-action semver
     # pattern): release v0.95.3 -> image tag 0.95.3.
-    image: ghcr.io/keyorixhq/keyorix-web:0.96.0 # pin; bump to match release tag on upgrades
+    image: ghcr.io/keyorixhq/keyorix-web:0.96.3 # pin; bump to match release tag on upgrades
     restart: unless-stopped
     ports:
       - "8088:80"

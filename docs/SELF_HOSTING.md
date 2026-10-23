@@ -26,7 +26,7 @@ The stack is three containers:
 ## 2. Quick start
 
 ```sh
-git clone https://github.com/keyorixhq/keyorix.git
+git clone --branch v0.96.3 https://github.com/keyorixhq/keyorix.git   # a release tag: main can be ahead of the published images
 cd keyorix
 cp .env.example .env
 ./scripts/selfhost/init-secrets.sh     # generates ./secrets/* and records KEYORIX_SECRETS_GID in .env
@@ -270,7 +270,7 @@ docker compose cp backend:/tmp/backup.tar.gz ./keyorix-backup-$(date +%F).tar.gz
 ```
 
 > **Version note.** The live (beside-the-server) Postgres backup below is not in
-> the published images before `0.96.0` (`docker-compose.yml` pins `0.96.0`): there the same
+> the published images before `0.96.0` (the shipped `docker-compose.yml` pins a newer image): there the same
 > command fails with `failed to acquire the encryption key lock (another process
 > is using it)`. With those older images (a stack still pinned to them) stop `backend` first and use
 > `docker compose run --rm -v "$PWD/backups:/out" backend ./keyorix-server admin backup --output /out/keyorix-backup.tar.gz`
