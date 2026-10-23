@@ -147,10 +147,10 @@ func (ls *LocalStorage) GetSecretScheduleAndLatestVersion(ctx context.Context, s
 		ls.secretMetaCache.evictSchedule(secretNodeID)
 	} else if ls.cacheEnabled {
 		gen := scheduleGenerationOf(sched)
-		if cached, ok := ls.secretMetaCache.getSchedule(secretNodeID); !ok || !cached.hasSchedule || cached.generation != gen {
+		if cached, ok := ls.secretMetaCache.getSchedule(secretNodeID); !ok || cached.generation != gen {
 			cp := *sched
 			ls.secretMetaCache.setSchedule(secretNodeID, secretScheduleCacheEntry{
-				generation: gen, hasSchedule: true, schedule: &cp,
+				generation: gen, schedule: &cp,
 			})
 		}
 	}
@@ -160,8 +160,7 @@ func (ls *LocalStorage) GetSecretScheduleAndLatestVersion(ctx context.Context, s
 			out.LatestVersionErr = fmt.Errorf("%s: %w", i18n.T("ErrorVersionNotFound", nil), storage.ErrSecretVersionNotFound)
 			return out, nil
 		}
-		cp := *version
-		out.LatestVersion = &cp
+		out.LatestVersion = cloneSecretVersion(version)
 		return out, nil
 	}
 	out.LatestVersion, out.LatestVersionErr = ls.readLatestSecretVersionRow(ctx, secretNodeID, liveGen, nil)
@@ -175,7 +174,7 @@ func (ls *LocalStorage) cachedLatestVersionAt(secretNodeID uint, liveGen version
 		return nil, false
 	}
 	cached, ok := ls.secretMetaCache.getVersion(secretNodeID)
-	if !ok || !cached.hasVersion || liveGen != cached.generation {
+	if !ok || liveGen != cached.generation {
 		return nil, false
 	}
 	return cached.latestVersion, true

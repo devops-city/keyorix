@@ -27,7 +27,7 @@ func TestSecretMetadataCache_SizeIsCapped(t *testing.T) {
 	for i := uint(1); i <= max*4; i++ {
 		c.setNode(i, nodeGeneration{}, &models.SecretNode{})
 		c.setVersion(i, versionsGeneration{}, &models.SecretVersion{EncryptedValue: []byte("ct")})
-		c.setSchedule(i, secretScheduleCacheEntry{hasSchedule: true, schedule: &models.SecretAccessSchedule{}})
+		c.setSchedule(i, secretScheduleCacheEntry{schedule: &models.SecretAccessSchedule{}})
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -56,7 +56,7 @@ func TestSecretMetadataCache_EntriesExpire(t *testing.T) {
 	c := boundTestCache(100, time.Minute, &clock)
 	c.setNode(1, nodeGeneration{}, &models.SecretNode{})
 	c.setVersion(1, versionsGeneration{}, &models.SecretVersion{EncryptedValue: []byte("ct")})
-	c.setSchedule(1, secretScheduleCacheEntry{hasSchedule: true, schedule: &models.SecretAccessSchedule{}})
+	c.setSchedule(1, secretScheduleCacheEntry{schedule: &models.SecretAccessSchedule{}})
 
 	clock = clock.Add(30 * time.Second)
 	if _, ok := c.getNode(1); !ok {
@@ -105,7 +105,7 @@ func TestSecretMetadataCache_BoundHoldsUnderConcurrency(t *testing.T) {
 				c.setVersion(id, versionsGeneration{}, &models.SecretVersion{})
 				c.getVersion(id)
 				c.setNode(id, nodeGeneration{}, &models.SecretNode{})
-				c.setSchedule(id, secretScheduleCacheEntry{hasSchedule: true})
+				c.setSchedule(id, secretScheduleCacheEntry{})
 				if i%50 == 0 { // sparse, so evictions don't mask growth
 					c.evictNode(id - 1)
 					c.evictSchedule(id - 1)

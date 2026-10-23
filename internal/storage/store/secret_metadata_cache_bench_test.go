@@ -8,6 +8,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -45,5 +46,61 @@ func BenchmarkGetSecret_CacheMiss(b *testing.B) {
 		if _, err := ls.GetSecret(ctx, created.ID); err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+// benchLatestVersionSecret creates a secret with n versions, the shape a
+// rotation-heavy secret has: the generation check aggregates over every one of
+// them (COUNT/MAX/SUM over secret_versions), so a hit and a miss both scale with n.
+func benchLatestVersionSecret(b *testing.B, ls *LocalStorage, n int) uint {
+	b.Helper()
+	ctx := context.Background()
+	created, err := ls.CreateSecret(ctx, &models.SecretNode{Name: "x", ProjectID: 1, EnvironmentID: 1, CreatedAt: time.Now(), UpdatedAt: time.Now()})
+	if err != nil {
+		b.Fatal(err)
+	}
+	for v := 1; v <= n; v++ {
+		if _, err := ls.CreateSecretVersion(ctx, &models.SecretVersion{
+			SecretNodeID: created.ID, VersionNumber: v, EncryptedValue: []byte("ct"), CreatedAt: time.Now(),
+		}); err != nil {
+			b.Fatal(err)
+		}
+	}
+	return created.ID
+}
+
+func BenchmarkGetLatestSecretVersion_CacheHit(b *testing.B) {
+	for _, n := range []int{1, 100} {
+		b.Run(fmt.Sprintf("versions=%d", n), func(b *testing.B) {
+			ls := newCacheTestStorage(b)
+			ctx := context.Background()
+			id := benchLatestVersionSecret(b, ls, n)
+			if _, err := ls.GetLatestSecretVersion(ctx, id); err != nil { // warm once
+				b.Fatal(err)
+			}
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				if _, err := ls.GetLatestSecretVersion(ctx, id); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
+func BenchmarkGetLatestSecretVersion_CacheMiss(b *testing.B) {
+	for _, n := range []int{1, 100} {
+		b.Run(fmt.Sprintf("versions=%d", n), func(b *testing.B) {
+			ls := newCacheTestStorage(b)
+			ctx := context.Background()
+			id := benchLatestVersionSecret(b, ls, n)
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				ls.secretMetaCache.evictNode(id) // drops the cached version too: two queries every iteration
+				if _, err := ls.GetLatestSecretVersion(ctx, id); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
 	}
 }

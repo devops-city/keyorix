@@ -1515,8 +1515,7 @@ func (ls *LocalStorage) GetLatestSecretVersion(ctx context.Context, secretID uin
 		if version == nil {
 			return nil, fmt.Errorf("%s: %w", i18n.T("ErrorVersionNotFound", nil), storage.ErrSecretVersionNotFound)
 		}
-		cp := *version
-		return &cp, nil
+		return cloneSecretVersion(version), nil
 	}
 	// Read the generation BEFORE the version query (coordinator review of
 	// #2764): a rotation committing between the two would otherwise cache the
@@ -1552,8 +1551,7 @@ func (ls *LocalStorage) readLatestSecretVersionRow(ctx context.Context, secretID
 	// next committed write that reproduces the same aggregate (see
 	// cacheEnabled's doc comment on LocalStorage).
 	if genErr == nil && ls.cacheEnabled {
-		cp := version
-		ls.secretMetaCache.setVersion(secretID, liveGen, &cp)
+		ls.secretMetaCache.setVersion(secretID, liveGen, cloneSecretVersion(&version))
 	}
 	return &version, nil
 }
@@ -1566,7 +1564,7 @@ func (ls *LocalStorage) getCachedLatestVersion(ctx context.Context, secretID uin
 		return nil, false
 	}
 	cached, ok := ls.secretMetaCache.getVersion(secretID)
-	if !ok || !cached.hasVersion {
+	if !ok {
 		return nil, false
 	}
 	liveGen, err := liveVersionsGeneration(ctx, ls.db, secretID)

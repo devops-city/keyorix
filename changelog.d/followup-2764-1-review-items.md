@@ -1,0 +1,2 @@
+### Internal
+- **Read-path metadata cache review follow-ups (#2764).** Cached secret versions are deep-copied on store and on hit, so a caller that wipes or decrypts its result in place can no longer corrupt the cached entry; the schedule cache stamp now includes the row id (a delete-then-recreate of an identical policy in one timestamp tick is a miss); the vestigial `hasVersion`/`hasSchedule` entry fields are gone; `GetLatestSecretVersion` has hit/miss benchmarks.

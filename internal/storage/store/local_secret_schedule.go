@@ -47,7 +47,7 @@ func (ls *LocalStorage) GetSecretAccessSchedule(ctx context.Context, secretNodeI
 	if ls.cacheEnabled {
 		cp := row
 		ls.secretMetaCache.setSchedule(secretNodeID, secretScheduleCacheEntry{
-			generation: scheduleGenerationOf(&row), hasSchedule: true, schedule: &cp,
+			generation: scheduleGenerationOf(&row), schedule: &cp,
 		})
 	}
 	return &row, nil
@@ -67,7 +67,7 @@ func (ls *LocalStorage) getCachedSchedule(ctx context.Context, secretNodeID uint
 		return nil, false
 	}
 	cached, ok := ls.secretMetaCache.getSchedule(secretNodeID)
-	if !ok || !cached.hasSchedule {
+	if !ok {
 		return nil, false
 	}
 	liveGen, found, err := liveScheduleGeneration(ctx, ls.db, secretNodeID)
