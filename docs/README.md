@@ -19,6 +19,7 @@
 | Audit chain reports BROKEN or INDETERMINATE: triage, evidence | [operator/audit-chain-break-runbook.md](./operator/audit-chain-break-runbook.md) |
 | Troubleshooting | [operator/j7-troubleshooting.md](./operator/j7-troubleshooting.md) |
 | PostgreSQL tuning, audit durability | [PERFORMANCE.md](./PERFORMANCE.md) |
+| Hardware sizing: what decides it, tiers, how to measure your own | [SIZING.md](./SIZING.md) |
 | Edge and industrial devices | [edge-deployment.md](./edge-deployment.md) |
 | A guided tour of the CLI | [operator/demo.md](./operator/demo.md) |
 

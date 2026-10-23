@@ -1019,11 +1019,38 @@ writes (`sso:<provider>:<sub>`). After the upgrade:
   created just-in-time by SSO, and native accounts that signed in through SSO.
 
 **Check after upgrading.** If your IdP's SCIM connector ever sent an `externalId`
-starting with `sso:`, such a row now exists but SCIM can no longer deactivate or delete
-it. Look for them (`SELECT id, username, external_id FROM users WHERE external_id LIKE 'sso:%'`)
-and decide per account whether it is a SCIM-created row or an SSO-claimed one. An
-IdP-side disable of an SSO/JIT account does not revoke its sessions or PATs; see
-SCIM-7 in [security/threat-models/scim-and-sso-accounts.md](security/threat-models/scim-and-sso-accounts.md).
+starting with `sso:`, SCIM created a row that SCIM can no longer deactivate or delete.
+Before this change the server accepted such an `externalId` on create. A plain
+`external_id LIKE 'sso:%'` query also lists every account SSO itself claimed or
+created, so join to the audit rows SCIM wrote when it created the account. The audit
+event's `user_id` is the acting principal, not the new user; the new user's id is in the
+description (`SCIM provisioned user <id> (username=..., externalId="...", active=...)`).
+This one statement runs unchanged on SQLite (`sqlite3 <database file>`) and PostgreSQL
+(`psql`):
+
+<!-- upgrading-6v-check-query -->
+```sql
+SELECT u.id, u.username, u.email, u.external_id, u.account_state
+FROM users u
+JOIN audit_events a
+  ON a.event_type = 'scim.user_provisioned'
+ AND a.description LIKE 'SCIM provisioned user ' || CAST(u.id AS TEXT) || ' (%'
+WHERE substr(u.external_id, 1, 4) = 'sso:'
+  AND u.deleted_at IS NULL
+ORDER BY u.id;
+```
+
+Every row returned was created by SCIM and carries an `sso:` id, so it is no longer
+SCIM-managed. No rows means nothing to do. The check only sees accounts whose
+`scim.user_provisioned` audit row is still in the audit log (audit retention purges old
+rows). A bare `external_id LIKE 'sso:%'` with no join answers a different question: which
+accounts SSO owns.
+
+Decide per row whether the person should still have access, and if not, offboard the
+account in Keyorix. An IdP-side disable of an SSO/JIT account does not revoke its
+sessions or PATs; see SCIM-7 in
+[security/threat-models/scim-and-sso-accounts.md](security/threat-models/scim-and-sso-accounts.md)
+and [Offboarding an SSO / JIT account](CONFIGURATION.md#offboarding-an-sso--jit-account).
 Deactivate such accounts, or revoke their PATs, in Keyorix.
 
 ## 6j. CLI: webhook URLs and tokens stay off the command line

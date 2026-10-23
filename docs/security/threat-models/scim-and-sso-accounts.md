@@ -83,10 +83,10 @@ flowchart TB
   to the IdP's addresses, rotate it on staff change.
 - **SCIM reach was wider than "accounts SCIM created" (#3418), and the
   deactivate signal did not revoke PATs (#3419).** Both are fixed in
-  #3493 and #3491 (not yet merged). Until they ship, an install that
-  uses SCIM *and* lets native accounts sign in through SSO should assume
-  a SCIM token holder can disable those accounts, and that a PAT survives
-  a deactivate and re-enable. Both shipped on 2026-10-20.
+  #3493 and #3491 (both merged 2026-10-20). An install running a build
+  older than those two should assume a SCIM token holder can disable
+  native accounts that signed in through SSO, and that a PAT survives a
+  deactivate and re-enable.
 - **SSO/JIT accounts are not offboarded by the IdP (SCIM-7, BACKLOG
   `JIT-OFFBOARDING-GAP`).** Since #3493 an account whose `external_id` is
   `sso:<provider>:<sub>` is not SCIM-managed, so an IdP disable or SCIM
@@ -101,6 +101,23 @@ flowchart TB
   (option B) is the planned fix if the combination is used. The ownership
   rule itself is unchanged. Operators upgrading should also check for SCIM-created rows with an `sso:`
   `externalId` (`docs/UPGRADING.md` section 6v).
+
+  **Stated plainly: a JIT/SSO-claimed account cannot be offboarded through
+  SCIM or the IdP.** Its PATs and sessions survive an IdP disable until a
+  Keyorix administrator suspends, deactivates or deletes the user
+  (`SuspendUser` and `DeleteUser` in `internal/core` both revoke every PAT
+  and delete every session in the same transaction), until each PAT's own
+  expiry passes, or until the session lifetime ends. The last bound is
+  weak by default: `session.absolute_ttl` is unset, so a session refreshes
+  indefinitely (`SessionConfig.GetAbsoluteTTL`). The inactivity sweep
+  (`SuspendInactiveUsers`, `internal/core/inactivity_suspend.go`) is **not
+  scheduled**: its only caller is the on-demand
+  `POST /api/v1/admin/jobs/suspend-inactive-users` handler
+  (`keyorix user suspend-inactive --days N`), and no entry in
+  `schedulerStarts` (`server/main.go`) runs it, so it is no compensating
+  control unless an operator invokes it. It also skips global
+  administrators. The exact leaver steps are in
+  [CONFIGURATION.md, "Offboarding an SSO / JIT account"](../../CONFIGURATION.md#offboarding-an-sso--jit-account).
 - **Known issue #3494: SCIM `ReplaceUser`, `PatchUser` and `DeleteUser`
   answer 404 for a storage failure, not 500**
   (`server/http/handlers/scim.go`: each maps any error from core to
