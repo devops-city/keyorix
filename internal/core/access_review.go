@@ -53,7 +53,10 @@ type AccessReviewEntry struct {
 type AccessReviewReport struct {
 	Entries []*AccessReviewEntry `json:"entries"`
 	// Degraded is true when the last-secret-access lookup could not be queried —
-	// every entry's LastUsedAt is then unknown, never verified "never used".
+	// every entry's LastUsedAt is then unknown, never verified "never used" — or
+	// when a grant applies in the project but is not among Entries: a legacy
+	// grant at {project_id: 0, environment_id: an environment of this project}
+	// (flagEnvironmentWithoutProjectGrants, ROLE-SHAPE-1), one reason per grant.
 	Degraded bool `json:"degraded"`
 	// DegradedReasons names the failed sub-query with its underlying error.
 	DegradedReasons []string `json:"degraded_reasons,omitempty"`
@@ -181,6 +184,7 @@ func (c *KeyorixCore) GenerateProjectAccessReview(ctx context.Context, projectID
 	c.appendSecretGrantEntries(ctx, secrets, report, &entries, res)
 	report.Entries = entries
 	c.annotateLastUsedAt(ctx, entries, report, projectID)
+	c.flagEnvironmentWithoutProjectGrants(ctx, projectID, report)
 	return report, nil
 }
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -88,4 +89,53 @@ func TestWireGlobalProjectRoleGrantsNotice_LogsLegacyGrants(t *testing.T) {
 	var after int64
 	require.NoError(t, db.Model(&models.UserRole{}).Count(&after).Error)
 	require.Equal(t, before, after, "the check is read-only")
+}
+
+// TestWireGlobalProjectRoleGrantsNotice_LogsEnvironmentWithoutProjectGrants
+// (ROLE-SHAPE-1): a legacy grant at {0, X} of ANY role (here a system role the
+// project-tier notice does not cover) is named at startup with its project and
+// the fix; a grant whose environment is gone is named with "remove"; nothing
+// is written. Red before ROLE-SHAPE-1: no line named either grant.
+func TestWireGlobalProjectRoleGrantsNotice_LogsEnvironmentWithoutProjectGrants(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	require.NoError(t, kxstorage.MigrateExisting(db))
+	require.NoError(t, db.Create(&models.Project{ID: 2, Name: "p2"}).Error)
+	require.NoError(t, db.Create(&models.Environment{ID: 5, ProjectID: 2, Name: "e5"}).Error)
+	require.NoError(t, db.Create(&models.Role{ID: 11, Name: "system_auditor", NameFolded: "system_auditor"}).Error)
+	require.NoError(t, db.Create(&models.UserRole{UserID: 3, RoleID: 11, EnvironmentID: 5}).Error)    // legacy {0, 5}
+	require.NoError(t, db.Create(&models.GroupRole{GroupID: 7, RoleID: 11, EnvironmentID: 99}).Error) // legacy, environment gone
+	require.NoError(t, db.Create(&models.UserRole{UserID: 3, RoleID: 11, ProjectID: 2, EnvironmentID: 5}).Error)
+	var before int64
+	require.NoError(t, db.Model(&models.UserRole{}).Count(&before).Error)
+
+	cw := &coreWiring{cfg: &config.Config{}, core: core.NewKeyorixCore(store.NewLocalStorage(db))}
+	var stepErr error
+	out := captureLogs(func() { stepErr = wireGlobalProjectRoleGrantsNotice(cw) })
+	require.NoError(t, stepErr)
+	t.Logf("startup notice:\n%s", out)
+	require.NotContains(t, out, "of a project role at the global scope", "no project-tier grant here")
+	require.Contains(t, out, "WARNING: 2 existing role grant(s) at project_id=0 with an environment_id")
+	require.Contains(t, out, "WARNING:   group 7 holds role system_auditor (id 11) at project_id=0, environment_id=99; "+
+		"environment 99 no longer exists: remove the grant (DELETE /api/v1/groups/7/roles/11?project_id=0&environment_id=99)\n")
+	require.Contains(t, out, "WARNING:   user 3 holds role system_auditor (id 11) at project_id=0, environment_id=5; "+
+		"it applies in environment 5 of project 2 but that project's access review does not list it: re-create it with project_id=2")
+	var after int64
+	require.NoError(t, db.Model(&models.UserRole{}).Count(&after).Error)
+	require.Equal(t, before, after, "the check is read-only")
+}
+
+func TestEnvironmentWithoutProjectGrantNotice_Truncates(t *testing.T) {
+	require.Nil(t, environmentWithoutProjectGrantNotice(nil), "no grants, no notice")
+	many := make([]core.EnvironmentWithoutProjectGrant, maxGlobalProjectRoleGrantLines+2)
+	for i := range many {
+		many[i] = core.EnvironmentWithoutProjectGrant{PrincipalType: "user", PrincipalID: uint(i + 1), RoleName: "system_viewer", EnvironmentID: 5, ProjectID: 2}
+	}
+	lines := environmentWithoutProjectGrantNotice(many)
+	require.Len(t, lines, maxGlobalProjectRoleGrantLines+2)
+	require.Contains(t, lines[0], fmt.Sprintf("%d existing role grant(s)", len(many)))
+	require.Equal(t, "WARNING:   ... and 2 more (each project's access review names its own)", lines[len(lines)-1])
 }

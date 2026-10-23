@@ -21,6 +21,8 @@ const maxGlobalProjectRoleGrantLines = 50
 // global scope apply in EVERY project, and new ones are now refused. Existing
 // ones are not touched (some may be relied on): this lists them, and SSO
 // settings that would create them, as a WARNING for an administrator to review.
+// ROLE-SHAPE-1 adds grants at {project_id: 0, environment_id: X} of any role,
+// which X's project's access review does not list.
 // Read-only and best-effort: it never blocks startup.
 func wireGlobalProjectRoleGrantsNotice(cw *coreWiring) error {
 	for _, line := range ssoProjectTierRoleWarnings(cw.cfg) {
@@ -36,7 +38,36 @@ func wireGlobalProjectRoleGrantsNotice(cw *coreWiring) error {
 	for _, line := range globalProjectRoleGrantNotice(grants) {
 		log.Print(line)
 	}
+	envGrants, err := cw.core.ListEnvironmentWithoutProjectGrants(ctx)
+	if err != nil {
+		log.Printf("environment-without-project grant check: %v (continuing; the check did not run)", err)
+		return nil
+	}
+	for _, line := range environmentWithoutProjectGrantNotice(envGrants) {
+		log.Print(line)
+	}
 	return nil
+}
+
+// environmentWithoutProjectGrantNotice renders the startup notice for grants at
+// {project_id: 0, environment_id: X} (ROLE-SHAPE-1, #2857); nil when there are
+// none. Any role: unlike the project-tier notice above, the problem is the
+// shape, which the access review of X's project does not list.
+func environmentWithoutProjectGrantNotice(grants []core.EnvironmentWithoutProjectGrant) []string {
+	if len(grants) == 0 {
+		return nil
+	}
+	lines := []string{fmt.Sprintf("WARNING: %d existing role grant(s) at project_id=0 with an environment_id: each applies "+
+		"inside that environment but is missing from its project's access review. New grants like these are refused "+
+		"since #3546; these were left in place. Re-create each with the environment's project_id, then remove it:", len(grants))}
+	for i, g := range grants {
+		if i == maxGlobalProjectRoleGrantLines {
+			lines = append(lines, fmt.Sprintf("WARNING:   ... and %d more (each project's access review names its own)", len(grants)-i))
+			break
+		}
+		lines = append(lines, "WARNING:   "+g.Describe())
+	}
+	return lines
 }
 
 // globalProjectRoleGrantNotice renders the startup notice for grants; nil when
