@@ -259,6 +259,13 @@ install (the file is then `<dir>/keyorix/credentials.yaml`); macOS ignores
 With no terminal (a script, CI), `login` reads `KEYORIX_PASSWORD` or the file named
 by `KEYORIX_PASSWORD_FILE` (a 0600 file; on `main`, not in the v0.96.1 release).
 
+`login` asks for things in this order: **password first, then the authenticator code**
+(only when the account has MFA on). A script should not pipe both on stdin (the second
+line is lost); set `KEYORIX_PASSWORD_FILE` and `KEYORIX_MFA_CODE` (or
+`KEYORIX_MFA_CODE_FILE`) instead. `keyorix mfa activate` asks in the opposite order:
+**code first, then the account password** (`KEYORIX_MFA_CODE` and
+`KEYORIX_PASSWORD[_FILE]` work there too).
+
 To check the connection at any time, run `keyorix status` (server URL, whether you are
 logged in, health, version compatibility), or `keyorix doctor` (on `main`, not in the
 v0.96.1 release) for a read-only checklist (reachability, TLS, version, clock, login,
@@ -301,7 +308,7 @@ seeded project `1` with environments `1`/`2`/`3` above, so new secrets can be
 created right away:
 
 ```bash
-./bin/keyorix secret create --name "stripe-api-key" --interactive   # value typed at a hidden prompt
+./bin/keyorix secret create --name "stripe-api-key" --interactive   # value typed at a hidden prompt (needs a terminal; in a script use --from-file)
 ./bin/keyorix secret create --name "deploy-key" --from-file ./deploy_key   # relative path; absolute paths and symlinks are refused
 ./bin/keyorix secret list
 ./bin/keyorix secret get --id 1               # metadata only

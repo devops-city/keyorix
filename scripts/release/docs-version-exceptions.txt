@@ -1,0 +1,5 @@
+# Intentional exceptions for scripts/release/check-docs-version.sh.
+# One per line, TAB-separated:  <path> <TAB> <fixed text on the pinning line> <TAB> <reason>
+# The text must identify the line without a version number in it, so the entry does not go
+# stale at the next release. An exception that matches nothing is reported as unused.
+# Empty on purpose: every install-doc pin is expected to equal the release tag.

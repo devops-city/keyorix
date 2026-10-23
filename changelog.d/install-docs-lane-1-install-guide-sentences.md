@@ -1,0 +1,2 @@
+### Documentation
+- Install guides, from the INSTALL-CLEANROOM-1 walk: INSTALL-WITH-AI.md step 2 says the install directory is arbitrary (and that the CLI credential file is per OS user), step 15 says to keep the admin password in a password manager for later logins, and QUICK_START.md states the prompt order of a scripted `keyorix login` (password, then authenticator code) and of `keyorix mfa activate` (code, then password), with the environment variables to use instead of piping.
