@@ -42,7 +42,7 @@ A release binary is the release's own behaviour: this page tracks `main`, so a
 command below can be newer than the release. For example `keyorix mfa enroll`
 does not exist in v0.95.3, and the v0.96.3 CLI has no `KEYORIX_PASSWORD_FILE`, `KEYORIX_MFA_CODE`,
 `KEYORIX_MFA_CODE_FILE` or `keyorix doctor` (only `main` does): with a release CLI, type the password
-and the code at the prompts, or in a script pipe the password on stdin and pass `--mfa-code <code>`.
+and the code at the prompts, or in a script pipe the password on stdin and pass the one-time code with the `--mfa-code` flag (it is visible in the process list, so prefer the prompt for interactive use).
 `keyorix-server --version` (or `keyorix-server admin version`)
 prints the version, commit, build date and Go version. The server itself has no
 `--config` flag (it reads `KEYORIX_CONFIG_PATH`, else `./keyorix.yaml`; only the
@@ -255,7 +255,7 @@ by `KEYORIX_PASSWORD_FILE` (a 0600 file; on `main`, not in the v0.96.3 release).
 (only when the account has MFA on). A script should not pipe both on stdin (the second
 line is lost); set `KEYORIX_PASSWORD_FILE` and `KEYORIX_MFA_CODE` (or
 `KEYORIX_MFA_CODE_FILE`) instead (on `main`; a release CLI takes the password on stdin
-and `--mfa-code <code>`). `keyorix mfa activate` asks in the opposite order:
+and the `--mfa-code` flag). `keyorix mfa activate` asks in the opposite order:
 **code first, then the account password** (`KEYORIX_MFA_CODE` and
 `KEYORIX_PASSWORD[_FILE]` work there too).
 
