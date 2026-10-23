@@ -264,7 +264,7 @@
 
         --text-primary: #111827;
         --text-secondary: #4b5563;
-        --text-muted: #9ca3af;
+        --text-muted: #5f6775; /* >= 4.5:1 on bg-app/surface/subtle/muted (was gray-400, 2.3-2.5:1) */
         --text-inverse: #ffffff;
 
         --border: #e5e7eb;
@@ -275,16 +275,16 @@
         --accent-subtle: #eff6ff; /* blue-50 */
         --accent-text: #1d4ed8; /* blue-700 */
 
-        --danger: #dc2626; /* red-600, matches btn-danger */
+        --danger: #c81e1e; /* >= 4.5:1 as text on every light surface; white-on-danger 5.7:1 */
         --danger-hover: #b91c1c; /* red-700 */
 
-        --error: #dc2626; /* alias for --danger */
+        --error: #c81e1e; /* alias for --danger */
         --error-subtle: #fef2f2; /* red-50 */
 
-        --success: #16a34a; /* green-600 */
+        --success: #15803d; /* green-700, 4.6-5.0:1 as text (green-600 was 3.0-3.3:1) */
         --success-subtle: #f0fdf4; /* green-50 */
 
-        --warning: #d97706; /* amber-600 */
+        --warning: #b45309; /* amber-700, 4.6-5.0:1 as text (amber-600 was 2.9-3.2:1) */
         --warning-subtle: #fffbeb; /* amber-50 */
 
         --radius: 0.5rem;
