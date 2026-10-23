@@ -16,7 +16,9 @@
 //     Anything for "other", group-write and setuid/setgid/sticky are always refused.
 //   - internal/secretenv/testdata/permission-matrix.tsv is the rule as a table;
 //     TestLookupSecretEnv_PermissionMatrix holds this copy to it.
-//   - neither the value nor the contents ever appear in an error.
+//   - neither the value nor the contents ever appear in an error, and the path
+//     only through describeSecretFile: a relative NAME_FILE is not shown, it may
+//     be the secret itself (internal/secretenv.DescribeFile, SECRETENV-REVIEW-1 F4).
 package cmd
 
 import (
@@ -24,6 +26,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"syscall"
@@ -62,7 +65,7 @@ func lookupSecretEnv(name string) (value string, found bool, err error) {
 	case path != "":
 		v, err := readCheckedSecretFile(path)
 		if err != nil {
-			return "", false, fmt.Errorf("%s=%q: %w", fileVar, path, err)
+			return "", false, fmt.Errorf("%s: %w", describeSecretFile(fileVar, path), err)
 		}
 		return v, true, nil
 	case direct != "":
@@ -77,7 +80,9 @@ func readCheckedSecretFile(path string) (string, error) {
 	f, info, err := regularfile.Open("secret file", path)
 	if err != nil {
 		if errors.Is(err, regularfile.ErrNotRegular) {
-			return "", err
+			// regularfile's message carries the path; the caller names the file
+			// through describeSecretFile instead (a relative path is not shown).
+			return "", fmt.Errorf("secret file is %w", regularfile.ErrNotRegular)
 		}
 		return "", fmt.Errorf("cannot open secret file: %w", unwrapSecretPathError(err))
 	}
@@ -99,6 +104,21 @@ func readCheckedSecretFile(path string) (string, error) {
 		return "", fmt.Errorf("secret file is empty")
 	}
 	return v, nil
+}
+
+// relativeSecretPathNotShown and describeSecretFile copy
+// internal/secretenv.RelativePathNotShown and DescribeFile for NAME_FILE labels;
+// TestDescribeSecretFile_MatchesSecretenv holds the text to the server's.
+const relativeSecretPathNotShown = "a relative path, not shown: it may be the secret itself"
+
+// describeSecretFile names the file fileVar points at for an error: NAME_FILE="/abs"
+// or, for a relative path, NAME_FILE (a relative path, not shown: ...). It is the
+// only way lookupSecretEnv's errors name the path.
+func describeSecretFile(fileVar, path string) string {
+	if !filepath.IsAbs(path) {
+		return fileVar + " (" + relativeSecretPathNotShown + ")"
+	}
+	return fmt.Sprintf("%s=%q", fileVar, path)
 }
 
 func unwrapSecretPathError(err error) error {

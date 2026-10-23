@@ -267,7 +267,7 @@ func (s ServerInstanceConfig) ResolveMetricsToken() (string, error) {
 	case s.MetricsTokenFile != "":
 		v, err := secretenv.ReadFile(s.MetricsTokenFile)
 		if err != nil {
-			return "", fmt.Errorf("metrics_token_file %q: %w", s.MetricsTokenFile, err)
+			return "", secretenv.NewFileError("metrics_token_file", s.MetricsTokenFile, err)
 		}
 		return v, nil
 	}
