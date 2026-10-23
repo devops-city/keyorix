@@ -1649,10 +1649,10 @@ evidence_delivery:
 When **encryption is enabled**, each exported pack is **signed**: a detached
 `<file>.json.sig` is written next to it (and the webhook delivery carries the
 signature in the `X-Keyorix-Evidence-Signature` header). The signature is an HMAC
-keyed by a DEK-derived key the database/DBA does not hold, so an archived pack's
+keyed by a KEK-derived key (`deriveEvidenceSignKey`) the database/DBA does not hold, so an archived pack's
 authenticity is provable later — verify with `keyorix compliance verify --file
 <pack>` (it asks the server, which recomputes the HMAC; a signature made under a
-pre-rotation DEK is reported as unverifiable rather than tampered).
+pre-KEK-rotation key is reported as unverifiable rather than tampered).
 
 ### Who "the project's admins" are (all project-level alerts)
 
@@ -1714,7 +1714,8 @@ checkpoint with an HMAC keyed by a KEK-derived key (`deriveAuditCheckpointKey`, 
 `keyorix audit verify` (and `GET /audit/verify`) then enforce the live chain
 against the latest checkpoint. Single-replica-gated (ADR-039).
 
-**Requires encryption enabled** — the signing key is derived from the DEK, so with
+**Requires encryption enabled** — the signing key is derived from the KEK (not the
+DEK, so a DEK rotation does not change it; a KEK rotation does), so with
 encryption off the scheduler logs a warning and does nothing.
 
 ```yaml
