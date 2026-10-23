@@ -126,7 +126,8 @@ What the fence and its checks cannot see, stated precisely:
   so the lock and the fence stay in place. The lease counts from when the poll was sent, so trust
   ends at most 1 second after the last poll that succeeded.
 
-Everything else that changes a fence trigger or function, enabled or not, any other trigger, rule or
+Everything else that changes a fence trigger or function, enabled or not, the function any trigger
+on a covered table runs (Keyorix's own migration triggers included), any other trigger, rule or
 row-level security policy on a covered table (or a covered table's row-level security switch), the
 holder row (`keyorix_sole_writer`), the inheritance of a fenced table or a fenced table's columns is
 detected within one poll (250 ms). The fence refuses a foreign write to the holder
