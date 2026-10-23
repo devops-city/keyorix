@@ -54,7 +54,7 @@ test('a project role is granted to a group only with a project', async ({ page }
         await expect(dialog.getByRole('alert')).toContainText('project_developer is a project role');
 
         // 3. With the project chosen, the grant lands.
-        await dialog.getByLabel('Project').selectOption(String(projectId));
+        await dialog.getByLabel('Project', { exact: true }).selectOption(String(projectId));
         await dialog.getByRole('checkbox', { name: /project_developer/ }).click();
         await expect(dialog.getByRole('checkbox', { name: /project_developer/ })).toBeChecked({ timeout: 15_000 });
         await expect(dialog.getByRole('alert')).toHaveCount(0);
