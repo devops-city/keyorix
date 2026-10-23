@@ -74,7 +74,7 @@ const GroupRow: React.FC<GroupRowProps> = ({ group, onEdit, onDelete, onManageRo
                     </div>
                 )}
             </td>
-            <td className="px-4 py-3">
+            <td className="sticky right-0 px-4 py-3" style={{ backgroundColor: 'var(--bg-surface)' }}>
                 <div className="flex items-center gap-1 justify-end">
                     <button
                         type="button"
@@ -252,8 +252,10 @@ export const GroupsPage: React.FC = () => {
             </div>
 
             {/* Table */}
-            <div className="rounded-xl border overflow-hidden" style={{ borderColor: 'var(--border)' }}>
-                <table className="w-full text-sm">
+            {/* On a phone the table scrolls sideways inside the card; the Actions column stays pinned
+                to the right edge so Manage roles / Edit / Delete are always reachable. */}
+            <div className="rounded-xl border overflow-x-auto" style={{ borderColor: 'var(--border)' }}>
+                <table data-testid="groups-table" className="w-full min-w-[640px] text-sm">
                     <thead>
                         <tr style={{ backgroundColor: 'var(--bg-subtle)' }}>
                             <th
@@ -281,8 +283,8 @@ export const GroupsPage: React.FC = () => {
                                 Roles
                             </th>
                             <th
-                                className="px-4 py-3 text-right text-xs font-medium"
-                                style={{ color: 'var(--text-muted)' }}
+                                className="sticky right-0 px-4 py-3 text-right text-xs font-medium"
+                                style={{ color: 'var(--text-muted)', backgroundColor: 'var(--bg-subtle)' }}
                             >
                                 Actions
                             </th>
