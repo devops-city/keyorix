@@ -120,6 +120,12 @@ If something else already listens on port 8080
 (`curl -s localhost:8080` or `ss -ltn` shows it), choose a free port now and use
 it in step 4 and wherever this page says `8080`.
 
+The install directory `~/keyorix` is only a convention: use any directory (a second
+install on the same host needs its own), because the commands name their files by relative path (`secrets/...`, `./keyorix.yaml`),
+so only the directory you run them from matters. The CLI's credential file is
+not part of that directory (it is per OS user, see QUICK_START.md, "Log in"): give a
+second install its own `XDG_CONFIG_HOME` on Linux, or its own `HOME` on macOS.
+
 ### 3. Generate the install secrets
 
 ```bash
@@ -277,6 +283,9 @@ Show the step 13 output, then tell the user:
   `secrets/master_password` **separately** (a password manager or a sealed
   envelope): without it every stored secret is lost, and there is no recovery.
   Keep `recovery-key.age` (or the key from step 12) away from this host too.
+- **Keep the admin password in your password manager.** Step 11 deletes
+  `secrets/admin_password`, but every later `keyorix login` needs it: after a restore,
+  or on another machine with the CLI.
 - `certs/server.crt` is self-signed for `localhost` and this host's name; replace it
   (same paths) with a CA-issued certificate before other machines connect.
 - The server was started with `nohup`. To run it as a service, see
