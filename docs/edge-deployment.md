@@ -123,6 +123,17 @@ How this is tested, and what that does not cover:
   write the server acknowledged is still there, that `admin verify-audit`
   reports the chain valid on the files exactly as the kill left them, and that
   every value that was returned has its audit row.
+- Last full run (2026-10-23, e2e VM, 4 writers): 222 `kill -9` cycles on
+  `strict`/FULL in two runs (182 + 40; 55 of them killed during start-up),
+  with no lost acknowledged write, no missing audit row, a valid chain after
+  every kill, and a plain restart each time (about 0.6 to 1 s to healthy). The
+  first run was meant to be 200 cycles and was cut at 182 by the script's own
+  `go test` timeout: cycles slow down as the database grows (about 48,000
+  secrets and a 2.5 GB database by then), so budget time and `/tmp` space for
+  a long soak. A test-only build with `_synchronous=NORMAL` (not shipped; the
+  DSN has no such option) also passed 50 of 50, as did 50 of 50 on FULL.
+  That is expected and says nothing about NORMAL being safe: a process kill
+  never drops the OS page cache, so `kill -9` cannot tell the two apart.
 - `kill -9` stops the process, not the disk. It exercises the "server crash"
   case, not a power cut; a power-cut run needs a device that drops unsynced
   writes and has not been done yet.
