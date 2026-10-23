@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/keyorix/cli/internal/credstore"
 )
 
 // #3026: the bundled web tier (nginx on :8088) answers /health itself with a
@@ -61,5 +63,36 @@ func TestStatus_UnknownHealthBodyStillFlagged(t *testing.T) {
 	})
 	if !strings.Contains(out, "unreachable or unexpected response (HTTP 200)") {
 		t.Fatalf("unexpected body must stay flagged, got:\n%s", out)
+	}
+}
+
+// F6 (INSTALL-CLEANROOM-1): the credential file is per OS user and shared by every install on
+// the account, so status names it, also when no server is configured yet.
+func TestStatus_PrintsCredentialFilePath(t *testing.T) {
+	t.Setenv("KEYORIX_SERVER", "")
+	t.Setenv("KEYORIX_TOKEN", "")
+	t.Setenv("KEYORIX_TOKEN_FILE", "")
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	want, err := credstore.DefaultPath()
+	if err != nil {
+		t.Fatalf("DefaultPath: %v", err)
+	}
+	out := captureStdout(t, func() {
+		if err := runStatus(statusCmd, nil); err == nil {
+			t.Fatalf("runStatus with no server configured should fail")
+		}
+	})
+	if !strings.Contains(out, "Credentials file: "+want+"\n") {
+		t.Fatalf("status output must name %q, got:\n%s", want, out)
+	}
+}
+
+func TestStatus_HelpNamesCredentialFileAndXDG(t *testing.T) {
+	for _, s := range []string{"credentials.yaml", "XDG_CONFIG_HOME", "~/.config", "Application Support"} {
+		if !strings.Contains(statusCmd.Long, s) {
+			t.Errorf("status --help must mention %q", s)
+		}
 	}
 }

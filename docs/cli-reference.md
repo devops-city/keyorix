@@ -5726,6 +5726,12 @@ Decision A removes local mode entirely). Unlike the old command, it actually par
 /health's response body instead of discarding it, and reports the GET /api/v1/version
 skew check.
 
+status also prints the credential file it reads: keyorix/credentials.yaml under the OS user
+config directory (~/.config on Linux, ~/Library/Application Support on macOS). The file is
+per OS user, so two installs on one account share it. On Linux, XDG_CONFIG_HOME moves it
+(a separate login, ca_file and token per value); macOS ignores XDG_CONFIG_HOME, so use a
+different HOME there.
+
 **Usage:** `keyorix status`
 
 **Examples:**

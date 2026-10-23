@@ -16,7 +16,13 @@ var statusCmd = &cobra.Command{
 (docs/cli-split-inventory.md §2.7): it has no local/embedded branch to fall back to (ADR-108
 Decision A removes local mode entirely). Unlike the old command, it actually parses GET
 /health's response body instead of discarding it, and reports the GET /api/v1/version
-skew check.`,
+skew check.
+
+status also prints the credential file it reads: keyorix/credentials.yaml under the OS user
+config directory (~/.config on Linux, ~/Library/Application Support on macOS). The file is
+per OS user, so two installs on one account share it. On Linux, XDG_CONFIG_HOME moves it
+(a separate login, ca_file and token per value); macOS ignores XDG_CONFIG_HOME, so use a
+different HOME there.`,
 	RunE: runStatus,
 }
 
@@ -25,6 +31,8 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("resolve credential store: %w", err)
 	}
+	// Before the server lookup, so it is also shown when no server is configured yet.
+	fmt.Printf("Credentials file: %s\n", store.Path())
 	serverURL, token, err := resolveServerAndToken(store)
 	if err != nil {
 		return err
