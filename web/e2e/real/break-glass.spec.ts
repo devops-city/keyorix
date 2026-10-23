@@ -11,6 +11,9 @@
 //   3. the admin revokes it through the confirm dialog (no browser alert/confirm): the row
 //      turns Revoked and loses its Revoke action.
 //   4. alice reloads: her activation reads Revoked, no countdown, no Revoke control.
+//      (3b) the admin, who is not the requester, records the independent review through the
+//      Review dialog (note of at least 10 characters); the row shows Reviewed and loses Review.
+//      Alice, the requester, is never offered Review.
 //   5. an outsider (not a member) sees only the project-level "Failed to load project."
 //      refusal (the project itself is a 403 for them, so the tab never mounts) and
 //      alice's justification never reaches that browser.
@@ -204,6 +207,27 @@ test('alice sees her activation as revoked', async () => {
     await expect(row.getByText('Revoked', { exact: true })).toBeVisible();
     await expect(row.getByTestId(/^bg-countdown-/)).toHaveCount(0);
     await expect(row.getByRole('button', { name: 'Revoke' })).toHaveCount(0);
+});
+
+test('the admin records the independent review; the requester is never offered one', async () => {
+    await openTab(alicePage);
+    await expect(alicePage.getByRole('button', { name: 'Review', exact: true })).toHaveCount(0);
+
+    await openTab(adminPage);
+    const row = adminPage.getByRole('row', { name: new RegExp(justification) });
+    await row.getByRole('button', { name: 'Review', exact: true }).click();
+    const dialog = adminPage.getByRole('dialog');
+    await expect(dialog.getByRole('heading', { name: 'Review emergency access' })).toBeVisible();
+    await expect(dialog.getByTestId('bg-review-submit')).toBeDisabled();
+    await dialog.getByLabel('Review note').fill(`Reviewed: incident confirmed, scope respected ${stamp}`);
+    const reviewed = adminPage.waitForResponse(
+        (r) => /\/break-glass\/\d+\/review$/.test(new URL(r.url()).pathname) && r.request().method() === 'POST'
+    );
+    await dialog.getByTestId('bg-review-submit').click();
+    expect((await reviewed).status()).toBe(200);
+
+    await expect(row.getByText('Reviewed', { exact: true })).toBeVisible({ timeout: 15_000 });
+    await expect(row.getByRole('button', { name: 'Review', exact: true })).toHaveCount(0);
 });
 
 test('an outsider sees only the project-level refusal, never the break-glass tab', async () => {

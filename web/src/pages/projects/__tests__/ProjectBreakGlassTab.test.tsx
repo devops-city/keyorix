@@ -5,15 +5,19 @@ import { render, screen, fireEvent, waitFor, within } from '../../../test/test-u
 import { ProjectBreakGlassTab, formatRemaining } from '../ProjectBreakGlassTab';
 import type { BreakGlassActivation, BreakGlassList, BreakGlassSettings } from '../../../services/breakGlass';
 
-const { listMock, activateMock, revokeMock } = vi.hoisted(() => ({
+const { listMock, activateMock, revokeMock, reviewMock } = vi.hoisted(() => ({
     listMock: vi.fn(),
     activateMock: vi.fn(),
     revokeMock: vi.fn(),
+    reviewMock: vi.fn(),
 }));
 
 vi.mock('../../../services/breakGlass', async (importOriginal) => {
     const actual = await importOriginal<typeof import('../../../services/breakGlass')>();
-    return { ...actual, breakGlassApi: { list: listMock, activate: activateMock, revoke: revokeMock } };
+    return {
+        ...actual,
+        breakGlassApi: { list: listMock, activate: activateMock, revoke: revokeMock, review: reviewMock },
+    };
 });
 
 vi.mock('../../../features/auth/api', () => ({ useAuth: () => ({ user: { id: 7 } }) }));
@@ -395,5 +399,98 @@ describe('ProjectBreakGlassTab — admin view', () => {
         renderTab();
         expect(await screen.findByText('Alice A')).toBeInTheDocument();
         expect(screen.queryByRole('button', { name: 'Revoke' })).not.toBeInTheDocument();
+    });
+});
+
+describe('ProjectBreakGlassTab — independent review', () => {
+    beforeEach(() => {
+        canState.value = { admin: false, manageMembers: true };
+    });
+
+    // The signed-in user is #7 (alice). Rows: 1 = alice's own ended activation, 2 = bob's ended one,
+    // 3 = bob's still-active one, 4 = bob's already-reviewed one.
+    const rows = () =>
+        project([
+            activation({ id: 1, userId: 7, state: 'revoked' }),
+            activation({ id: 2, userId: 8, state: 'revoked' }),
+            activation({ id: 3, userId: 8 }),
+            activation({
+                id: 4,
+                userId: 8,
+                state: 'expired',
+                expiresAt: inMinutes(-60),
+                reviewedBy: 9,
+                reviewNote: 'ok',
+            }),
+        ]);
+
+    it('offers Review only on an ended, unreviewed activation that someone else requested', async () => {
+        listMock.mockResolvedValue(rows());
+        renderTab();
+        await screen.findByTestId('bg-row-2');
+        expect(screen.getByTestId('bg-review-2')).toBeInTheDocument();
+        expect(screen.queryByTestId('bg-review-1')).not.toBeInTheDocument(); // the requester's own
+        expect(screen.queryByTestId('bg-review-3')).not.toBeInTheDocument(); // still active
+        expect(screen.queryByTestId('bg-review-4')).not.toBeInTheDocument(); // already reviewed
+        expect(within(screen.getByTestId('bg-row-4')).getByTestId('bg-reviewed-4')).toBeInTheDocument();
+    });
+
+    it('hides Review from a reader without roles.assign and from a member’s own view', async () => {
+        canState.value = { admin: false, manageMembers: false };
+        listMock.mockResolvedValue(rows());
+        renderTab();
+        await screen.findByTestId('bg-row-2');
+        expect(screen.queryByTestId('bg-review-2')).not.toBeInTheDocument();
+
+        listMock.mockResolvedValue(own([activation({ id: 6, userId: 7, state: 'revoked' })]));
+        canState.value = { admin: false, manageMembers: true };
+        renderTab();
+        await waitFor(() => expect(screen.getByTestId('bg-row-6')).toBeInTheDocument());
+        expect(screen.queryByTestId('bg-review-6')).not.toBeInTheDocument();
+    });
+
+    it('requires a note of at least 10 characters, then posts it and re-reads the list', async () => {
+        listMock.mockResolvedValue(rows());
+        reviewMock.mockResolvedValue(undefined);
+        renderTab();
+        fireEvent.click(await screen.findByTestId('bg-review-2'));
+        const dialog = await screen.findByRole('dialog');
+        const submit = within(dialog).getByTestId('bg-review-submit');
+        expect(submit).toBeDisabled();
+        fireEvent.change(within(dialog).getByLabelText('Review note'), { target: { value: 'too short' } });
+        expect(submit).toBeDisabled();
+        fireEvent.change(within(dialog).getByLabelText('Review note'), {
+            target: { value: '  Reviewed: INC-4711 confirmed  ' },
+        });
+        expect(submit).toBeEnabled();
+        fireEvent.click(submit);
+        await waitFor(() => expect(reviewMock).toHaveBeenCalledWith(5, 2, 'Reviewed: INC-4711 confirmed'));
+        await waitFor(() => expect(listMock.mock.calls.length).toBeGreaterThanOrEqual(2));
+    });
+
+    it('shows the server’s refusal in the dialog and keeps it open', async () => {
+        listMock.mockResolvedValue(rows());
+        reviewMock.mockRejectedValue(
+            refusal(403, {
+                error: 'Forbidden',
+                message: 'you cannot review your own break-glass activation',
+                code: 403,
+            })
+        );
+        renderTab();
+        fireEvent.click(await screen.findByTestId('bg-review-2'));
+        const dialog = await screen.findByRole('dialog');
+        fireEvent.change(within(dialog).getByLabelText('Review note'), { target: { value: 'a long enough note' } });
+        fireEvent.click(within(dialog).getByTestId('bg-review-submit'));
+        expect(await within(dialog).findByRole('alert')).toHaveTextContent('you cannot review your own');
+        expect(screen.getByRole('dialog')).toBeInTheDocument();
+    });
+
+    it('cancelling posts nothing', async () => {
+        listMock.mockResolvedValue(rows());
+        renderTab();
+        fireEvent.click(await screen.findByTestId('bg-review-2'));
+        fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Cancel' }));
+        expect(reviewMock).not.toHaveBeenCalled();
     });
 });

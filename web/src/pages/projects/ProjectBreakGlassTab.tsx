@@ -6,18 +6,23 @@ import {
     BREAK_GLASS_KEYS,
     useActivateBreakGlass,
     useBreakGlassActivations,
+    useReviewBreakGlass,
     useRevokeBreakGlass,
 } from '../../features/projects/breakGlass';
 import { useProjectMembers } from '../../features/projects/api';
 import { useCan } from '../../features/auth/useCan';
+import { useAuth } from '../../features/auth/api';
 import {
     BreakGlassActivation,
     BreakGlassRefusal,
+    BreakGlassState,
     BreakGlassSettings,
     classifyBreakGlassError,
 } from '../../services/breakGlass';
 import { apiErrorMessage, MFA_ENROLMENT_URL } from '../../services/client';
 import { Dialog } from '../../components/ui/Dialog';
+import { Modal } from '../../components/ui/Modal';
+import { Button } from '../../components/ui/Button';
 
 interface ProjectBreakGlassTabProps {
     projectId: number;
@@ -37,6 +42,11 @@ const TTL_CANDIDATES: { value: string; seconds: number }[] = [
     { value: '8h', seconds: 8 * 60 * 60 },
     { value: '24h', seconds: 24 * 60 * 60 },
 ];
+
+// The server's bounds on a review note (internal/core/break_glass.go); it enforces them, this
+// only keeps the button honest.
+const REVIEW_NOTE_MIN = 10;
+const REVIEW_NOTE_MAX = 2000;
 
 const plural = (n: number, unit: string) => `${n} ${unit}${n === 1 ? '' : 's'}`;
 
@@ -308,10 +318,16 @@ const ActivationsTable: React.FC<{
     showWho: boolean;
     names: Map<number, string>;
     canRevoke: boolean;
-}> = ({ projectId, activations, showWho, names, canRevoke }) => {
+    canReview: boolean;
+}> = ({ projectId, activations, showWho, names, canRevoke, canReview }) => {
     const qc = useQueryClient();
+    const { user } = useAuth();
     const revoke = useRevokeBreakGlass(projectId);
+    const review = useReviewBreakGlass(projectId);
     const [target, setTarget] = useState<BreakGlassActivation | null>(null);
+    const [reviewTarget, setReviewTarget] = useState<BreakGlassActivation | null>(null);
+    const [reviewNote, setReviewNote] = useState('');
+    const [reviewError, setReviewError] = useState<string | null>(null);
     const [error, setError] = useState<{ kind: BreakGlassRefusal; message: string } | null>(null);
 
     const anyActive = activations.some((a) => a.state === 'active');
@@ -341,6 +357,34 @@ const ActivationsTable: React.FC<{
                 setError({ kind: classifyBreakGlassError(err), message: apiErrorMessage(err, 'Revoke failed.') });
             },
         });
+    };
+
+    // Offered only where the server would accept it: a reviewer with roles.assign who is not the
+    // requester, on an activation that has ended and has no review yet. The server enforces all
+    // of it again (self-review 403, still-active 400, already-reviewed 400).
+    const canReviewRow = (a: BreakGlassActivation, state: BreakGlassState) =>
+        canReview && state !== 'active' && !a.reviewedBy && user?.id !== undefined && a.userId !== Number(user.id);
+
+    const openReview = (a: BreakGlassActivation) => {
+        setReviewNote('');
+        setReviewError(null);
+        review.reset();
+        setReviewTarget(a);
+    };
+
+    const noteLength = reviewNote.trim().length;
+    const noteValid = noteLength >= REVIEW_NOTE_MIN && noteLength <= REVIEW_NOTE_MAX;
+
+    const submitReview = () => {
+        if (!reviewTarget || !noteValid) return;
+        setReviewError(null);
+        review.mutate(
+            { activationId: reviewTarget.id, note: reviewNote.trim() },
+            {
+                onSuccess: () => setReviewTarget(null),
+                onError: (err) => setReviewError(apiErrorMessage(err, 'Review failed.')),
+            }
+        );
     };
 
     if (activations.length === 0) {
@@ -394,6 +438,19 @@ const ActivationsTable: React.FC<{
                                         >
                                             {style.label}
                                         </span>
+                                        {a.reviewedBy !== undefined && (
+                                            <span
+                                                data-testid={`bg-reviewed-${a.id}`}
+                                                title={a.reviewNote ? `Reviewed: ${a.reviewNote}` : 'Reviewed'}
+                                                className="ml-1 px-2 py-0.5 rounded-full text-xs font-medium"
+                                                style={{
+                                                    backgroundColor: 'var(--accent-subtle)',
+                                                    color: 'var(--accent-text)',
+                                                }}
+                                            >
+                                                Reviewed
+                                            </span>
+                                        )}
                                         {a.degraded && (
                                             <span
                                                 data-testid={`bg-degraded-${a.id}`}
@@ -428,6 +485,17 @@ const ActivationsTable: React.FC<{
                                                     Revoke
                                                 </button>
                                             )}
+                                            {canReviewRow(a, state) && (
+                                                <button
+                                                    type="button"
+                                                    data-testid={`bg-review-${a.id}`}
+                                                    onClick={() => openReview(a)}
+                                                    className="text-sm underline"
+                                                    style={{ color: 'var(--accent-text)' }}
+                                                >
+                                                    Review
+                                                </button>
+                                            )}
                                         </td>
                                     )}
                                 </tr>
@@ -451,6 +519,68 @@ const ActivationsTable: React.FC<{
                 onConfirm={confirmRevoke}
                 loading={revoke.isPending}
             />
+
+            <Modal
+                isOpen={reviewTarget !== null}
+                onClose={() => setReviewTarget(null)}
+                title="Review emergency access"
+                size="md"
+            >
+                {reviewTarget && (
+                    <div className="space-y-3">
+                        <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                            {who(reviewTarget)} used the {reviewTarget.roleName || 'emergency'} role on this project.
+                            Record that you, as an independent reviewer, checked what was done with it. The review is
+                            permanent and cannot be changed.
+                        </p>
+                        <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                            Justification given: {reviewTarget.justification}
+                        </p>
+                        <label
+                            htmlFor="bg-review-note"
+                            className="block text-sm font-medium"
+                            style={{ color: 'var(--text-primary)' }}
+                        >
+                            Review note
+                        </label>
+                        <textarea
+                            id="bg-review-note"
+                            value={reviewNote}
+                            onChange={(e) => setReviewNote(e.target.value)}
+                            rows={4}
+                            maxLength={REVIEW_NOTE_MAX}
+                            className="w-full px-3 py-2 rounded-md border text-sm"
+                            style={{
+                                backgroundColor: 'var(--bg-app)',
+                                borderColor: 'var(--border-strong)',
+                                color: 'var(--text-primary)',
+                            }}
+                            placeholder="What you checked and what you found"
+                        />
+                        <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                            At least {REVIEW_NOTE_MIN} characters.
+                        </p>
+                        {reviewError && (
+                            <p role="alert" className="text-sm" style={{ color: 'var(--error)' }}>
+                                {reviewError}
+                            </p>
+                        )}
+                        <div className="flex justify-end gap-2 pt-2">
+                            <Button variant="secondary" onClick={() => setReviewTarget(null)}>
+                                Cancel
+                            </Button>
+                            <Button
+                                data-testid="bg-review-submit"
+                                loading={review.isPending}
+                                disabled={!noteValid}
+                                onClick={submitReview}
+                            >
+                                Record review
+                            </Button>
+                        </div>
+                    </div>
+                )}
+            </Modal>
         </>
     );
 };
@@ -461,12 +591,20 @@ const AllActivations: React.FC<{
     projectId: number;
     activations: BreakGlassActivation[];
     canRevoke: boolean;
-}> = ({ projectId, activations, canRevoke }) => {
+    canReview: boolean;
+}> = ({ projectId, activations, canRevoke, canReview }) => {
     const { data: members } = useProjectMembers(projectId);
     const names = new Map<number, string>();
     (members ?? []).forEach((m) => names.set(m.userId, m.displayName || m.username));
     return (
-        <ActivationsTable projectId={projectId} activations={activations} showWho names={names} canRevoke={canRevoke} />
+        <ActivationsTable
+            projectId={projectId}
+            activations={activations}
+            showWho
+            names={names}
+            canRevoke={canRevoke}
+            canReview={canReview}
+        />
     );
 };
 
@@ -532,7 +670,12 @@ export const ProjectBreakGlassTab: React.FC<ProjectBreakGlassTabProps> = ({ proj
                     {scope === 'project' ? 'All activations on this project' : 'Your activations'}
                 </h2>
                 {scope === 'project' ? (
-                    <AllActivations projectId={projectId} activations={activations} canRevoke={can.manageMembers} />
+                    <AllActivations
+                        projectId={projectId}
+                        activations={activations}
+                        canRevoke={can.manageMembers}
+                        canReview={can.manageMembers}
+                    />
                 ) : (
                     <ActivationsTable
                         projectId={projectId}
@@ -540,6 +683,7 @@ export const ProjectBreakGlassTab: React.FC<ProjectBreakGlassTabProps> = ({ proj
                         showWho={false}
                         names={new Map()}
                         canRevoke={false}
+                        canReview={false}
                     />
                 )}
             </section>

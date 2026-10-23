@@ -41,3 +41,12 @@ export function useRevokeBreakGlass(projectId: number) {
         onSettled: () => qc.invalidateQueries({ queryKey: BREAK_GLASS_KEYS.all }),
     });
 }
+
+export function useReviewBreakGlass(projectId: number) {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: ({ activationId, note }: { activationId: number; note: string }) =>
+            breakGlassApi.review(projectId, activationId, note),
+        onSettled: () => qc.invalidateQueries({ queryKey: BREAK_GLASS_KEYS.all }),
+    });
+}
