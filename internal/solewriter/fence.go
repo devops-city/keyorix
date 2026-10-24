@@ -215,7 +215,10 @@ func triggerSpecs(schema string) []triggerSpec {
 // other (its full definition, enabled state and catalog row version; a role
 // with the TRIGGER privilege can add one that rewrites or suppresses rows
 // around the fence), the three functions (body, settings and row
-// version), every inheritance or partition link with a covered table on
+// version), the function each of those triggers executes (the same; a
+// migration trigger's function runs in the writer's session, the server's
+// tagged one included, so replacing it is tampering too: REVIEW-SOLEWRITER-1
+// F1), every inheritance or partition link with a covered table on
 // either side, and every column of a covered table (name, type and row
 // version). Every name is qualified; run it on a session whose search_path is
 // pinned (pinSessionSchema), which also fixes pg_get_triggerdef's output.
@@ -258,6 +261,10 @@ const fingerprintSQL = `SELECT pg_catalog.md5(
   coalesce((SELECT pg_catalog.string_agg(p.proname || ':' || pg_catalog.md5(p.prosrc) || ':' || coalesce(pg_catalog.array_to_string(p.proconfig, ';'), '') || ':' || p.prosecdef::text || ':' || p.xmin::text, ',' ORDER BY p.proname)
     FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
     WHERE n.nspname = $1 AND p.proname LIKE 'keyorix\_sole\_writer\_%'), '')
+  || '|' ||
+  coalesce((SELECT pg_catalog.string_agg(p.oid::text || ':' || pg_catalog.md5(p.prosrc) || ':' || coalesce(pg_catalog.array_to_string(p.proconfig, ';'), '') || ':' || p.prosecdef::text || ':' || p.xmin::text, ',' ORDER BY p.oid)
+    FROM pg_catalog.pg_proc p WHERE p.oid IN (SELECT t.tgfoid FROM pg_catalog.pg_trigger t
+      WHERE NOT t.tgisinternal AND t.tgrelid IN (` + coveredOIDsSQL + `))), '')
   || '|' ||
   coalesce((SELECT pg_catalog.string_agg(i.inhparent::text || '<' || i.inhrelid::text, ',' ORDER BY i.inhparent, i.inhrelid)
     FROM pg_catalog.pg_inherits i WHERE i.inhparent IN (` + coveredOIDsSQL + `) OR i.inhrelid IN (` + coveredOIDsSQL + `)), '')
@@ -458,7 +465,8 @@ WHERE NOT t.tgisinternal AND t.tgrelid IN (` + coveredOIDsSQL + `) AND NOT ((c.r
 // migrationTriggers are the triggers Keyorix's own migrations install on
 // covered tables (internal/storage/store: the role-permission generation and
 // the secret-node cache epoch), as table.trigger. They are not the fence's,
-// but not foreign either; the fingerprint still covers them. A migration that
+// but not foreign either; the fingerprint still covers them and the
+// functions they execute. A migration that
 // adds another one makes every single-writer start non-authoritative until it
 // is listed here (TestMigrationTriggers_MatchTheStore checks the names).
 var migrationTriggers = []string{
