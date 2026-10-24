@@ -282,6 +282,18 @@ func TestFoldedCredential_CrossReplicaInvalidation(t *testing.T) {
 		fcCase{"permission-renamed-direct-sql", func(t *testing.T, w *svWorld, _ *models.SecretNode, _ models.MachineIdentityCredential) {
 			require.NoError(t, w.a.db.Exec("UPDATE permissions SET name = name || '.renamed' WHERE name = 'secrets.read'").Error)
 		}},
+		// REVIEW-LEVER2: a classification change on the node the fold parks. The
+		// restricted-read gate is off by default (a classification is then only a
+		// label and the read is unchanged), so every replica runs with it armed;
+		// the secret is unclassified while B warms and folds, and turns "restricted"
+		// on A. A machine read of a restricted secret is always denied under the
+		// gate, so B (folded) must refuse exactly as C (cold) does.
+		fcCase{"classification-restricted-direct-sql", func(t *testing.T, w *svWorld, sec *models.SecretNode, _ models.MachineIdentityCredential) {
+			for _, r := range []*svReplica{w.a, w.b, w.c} {
+				r.c.SetClassificationRestrictedRequiresPermission(true)
+			}
+			require.NoError(t, w.a.db.Exec("UPDATE secret_nodes SET classification = ? WHERE id = ?", "restricted", sec.ID).Error)
+		}},
 		fcCase{"epoch-trigger-dropped-then-write", func(t *testing.T, w *svWorld, sec *models.SecretNode, _ models.MachineIdentityCredential) {
 			drop := "DROP TRIGGER trg_secret_nodes_cache_epoch"
 			if w.backend == "postgres" {
